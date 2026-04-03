@@ -17,6 +17,9 @@ const {
   normalizePreparedToolNames,
   boolDefaultTrue,
   filterIncrementalToolCallDeltasByAllowed,
+  shouldSkipPath,
+  isNodeStreamSupportedPath,
+  extractPathname,
 } = handler.__test;
 
 test('chat-stream exposes parser test hooks', () => {
@@ -34,7 +37,7 @@ test('resolveToolcallPolicy defaults to feature-match + early emit when prepare 
   assert.equal(policy.emitEarlyToolDeltas, true);
 });
 
-test('resolveToolcallPolicy respects prepare flags and prepared tool names', () => {
+test('resolveToolcallPolicy ignores prepare flags and keeps early emit enabled', () => {
   const policy = resolveToolcallPolicy(
     {
       tool_names: [' prepped_tool ', '', null],
@@ -45,7 +48,7 @@ test('resolveToolcallPolicy respects prepare flags and prepared tool names', () 
   );
   assert.deepEqual(policy.toolNames, ['prepped_tool']);
   assert.equal(policy.toolSieveEnabled, true);
-  assert.equal(policy.emitEarlyToolDeltas, false);
+  assert.equal(policy.emitEarlyToolDeltas, true);
 });
 
 test('normalizePreparedToolNames filters empty values', () => {
@@ -217,4 +220,22 @@ test('parseChunkForContent supports wrapped response.fragments object shape', ()
   const parsed = parseChunkForContent(chunk, false, 'text');
   assert.equal(parsed.finished, false);
   assert.equal(parsed.parts.map((p) => p.text).join(''), 'AB');
+});
+
+test('shouldSkipPath skips dynamic response/fragments/*/status paths only', () => {
+  assert.equal(shouldSkipPath('response/fragments/-16/status'), true);
+  assert.equal(shouldSkipPath('response/fragments/8/status'), true);
+  assert.equal(shouldSkipPath('response/status'), false);
+});
+
+test('node stream path guard only allows /v1/chat/completions', () => {
+  assert.equal(isNodeStreamSupportedPath('/v1/chat/completions'), true);
+  assert.equal(isNodeStreamSupportedPath('/v1/chat/completions?x=1'), true);
+  assert.equal(isNodeStreamSupportedPath('/v1beta/models/gemini-2.5-flash:streamGenerateContent'), false);
+  assert.equal(isNodeStreamSupportedPath('/anthropic/v1/messages'), false);
+});
+
+test('extractPathname strips query only', () => {
+  assert.equal(extractPathname('/v1/chat/completions?stream=true'), '/v1/chat/completions');
+  assert.equal(extractPathname('/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=1'), '/v1beta/models/gemini-2.5-flash:streamGenerateContent');
 });

@@ -49,6 +49,7 @@ type responsesStreamRuntime struct {
 	messagePartAdded  bool
 	sequence          int
 	failed            bool
+	outputTokens      int
 
 	persistResponse func(obj map[string]any)
 }
@@ -97,7 +98,7 @@ func newResponsesStreamRuntime(
 
 func (s *responsesStreamRuntime) finalize() {
 	finalThinking := s.thinking.String()
-	finalText := sanitizeLeakedToolHistory(s.text.String())
+	finalText := sanitizeLeakedOutput(s.text.String())
 
 	if s.bufferToolContent {
 		s.processToolStreamEvents(flushToolSieve(&s.sieve, s.toolNames), true)
@@ -144,6 +145,14 @@ func (s *responsesStreamRuntime) finalize() {
 	s.closeIncompleteFunctionItems()
 
 	obj := s.buildCompletedResponseObject(finalThinking, finalText, detected)
+	if s.outputTokens > 0 {
+		if usage, ok := obj["usage"].(map[string]any); ok {
+			usage["output_tokens"] = s.outputTokens
+			if input, ok := usage["input_tokens"].(int); ok {
+				usage["total_tokens"] = input + s.outputTokens
+			}
+		}
+	}
 	if s.persistResponse != nil {
 		s.persistResponse(obj)
 	}
@@ -172,6 +181,9 @@ func (s *responsesStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Pa
 	if !parsed.Parsed {
 		return streamengine.ParsedDecision{}
 	}
+	if parsed.OutputTokens > 0 {
+		s.outputTokens = parsed.OutputTokens
+	}
 	if parsed.ContentFilter || parsed.ErrorMessage != "" || parsed.Stop {
 		return streamengine.ParsedDecision{Stop: true}
 	}
@@ -194,7 +206,7 @@ func (s *responsesStreamRuntime) onParsed(parsed sse.LineResult) streamengine.Pa
 			continue
 		}
 
-		cleanedText := sanitizeLeakedToolHistory(p.Text)
+		cleanedText := sanitizeLeakedOutput(p.Text)
 		if cleanedText == "" {
 			continue
 		}

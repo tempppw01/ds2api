@@ -24,7 +24,7 @@ This guide covers all deployment methods for the current Go-based codebase.
 
 | Dependency | Minimum Version | Notes |
 | --- | --- | --- |
-| Go | 1.24+ | Build backend |
+| Go | 1.26+ | Build backend |
 | Node.js | 20+ | Only needed to build WebUI locally |
 | npm | Bundled with Node.js | Install WebUI dependencies |
 
@@ -111,8 +111,9 @@ go build -o ds2api ./cmd/ds2api
 ### 2.1 Basic Steps
 
 ```bash
-# Copy env template
+# Copy env template and config file
 cp .env.example .env
+cp config.example.json config.json
 
 # Edit .env and set at least:
 #   DS2API_ADMIN_KEY=your-admin-key
@@ -248,6 +249,7 @@ VERCEL_TEAM_ID=team_xxxxxxxxxxxx   # optional for personal accounts
 | `DS2API_ACCOUNT_QUEUE_SIZE` | Alias (legacy compat) | — |
 | `DS2API_GLOBAL_MAX_INFLIGHT` | Global inflight limit | `recommended_concurrency` |
 | `DS2API_MAX_INFLIGHT` | Alias (legacy compat) | — |
+| `DS2API_ENV_WRITEBACK` | When `DS2API_CONFIG_JSON` is present, auto-write to `DS2API_CONFIG_PATH` and switch to file-backed mode after success (`1/true/yes/on`) | Disabled |
 | `DS2API_VERCEL_INTERNAL_SECRET` | Hybrid streaming internal auth | Falls back to `DS2API_ADMIN_KEY` |
 | `DS2API_VERCEL_STREAM_LEASE_TTL_SECONDS` | Stream lease TTL | `900` |
 | `VERCEL_TOKEN` | Vercel sync token | — |
@@ -399,7 +401,7 @@ cp config.example.json config.json
 docker pull ghcr.io/cjackhwang/ds2api:latest
 
 # specific version (example)
-docker pull ghcr.io/cjackhwang/ds2api:v2.1.2
+docker pull ghcr.io/cjackhwang/ds2api:v3.0.0
 ```
 
 ---
@@ -456,8 +458,8 @@ server {
 # Copy compiled binary and related files to target directory
 sudo mkdir -p /opt/ds2api
 sudo cp ds2api config.json /opt/ds2api/
-# Optional: if you want to use an external WASM file (override embedded one)
-# sudo cp sha3_wasm_bg.7b9ca65ddd.wasm /opt/ds2api/
+# Optional: if you want to use an external WASM file (override the embedded one, from a release package or build output)
+# sudo cp /path/to/sha3_wasm_bg.7b9ca65ddd.wasm /opt/ds2api/
 sudo cp -r static/admin /opt/ds2api/static/admin
 ```
 

@@ -183,13 +183,16 @@ func findToolSegmentStart(s string) int {
 		return -1
 	}
 	lower := strings.ToLower(s)
-	keywords := []string{"tool_calls", "\"function\"", "function.name:", "[tool_call_history]", "[tool_result_history]"}
+	keywords := []string{"tool_calls", "\"function\"", "function.name:", "\"tool_use\""}
 	bestKeyIdx := -1
 	for _, kw := range keywords {
 		idx := strings.Index(lower, kw)
 		if idx >= 0 && (bestKeyIdx < 0 || idx < bestKeyIdx) {
 			bestKeyIdx = idx
 		}
+	}
+	if fnKeyIdx := findQuotedFunctionCallKeyStart(s); fnKeyIdx >= 0 && (bestKeyIdx < 0 || fnKeyIdx < bestKeyIdx) {
+		bestKeyIdx = fnKeyIdx
 	}
 	// Also detect XML tool call tags.
 	for _, tag := range xmlToolTagsToDetect {
@@ -240,12 +243,15 @@ func consumeToolCapture(state *toolStreamSieveState, toolNames []string) (prefix
 
 	lower := strings.ToLower(captured)
 	keyIdx := -1
-	keywords := []string{"tool_calls", "\"function\"", "function.name:", "[tool_call_history]", "[tool_result_history]"}
+	keywords := []string{"tool_calls", "\"function\"", "function.name:", "\"tool_use\""}
 	for _, kw := range keywords {
 		idx := strings.Index(lower, kw)
 		if idx >= 0 && (keyIdx < 0 || idx < keyIdx) {
 			keyIdx = idx
 		}
+	}
+	if fnKeyIdx := findQuotedFunctionCallKeyStart(captured); fnKeyIdx >= 0 && (keyIdx < 0 || fnKeyIdx < keyIdx) {
+		keyIdx = fnKeyIdx
 	}
 
 	if keyIdx < 0 {
@@ -253,9 +259,6 @@ func consumeToolCapture(state *toolStreamSieveState, toolNames []string) (prefix
 	}
 	start := strings.LastIndex(captured[:keyIdx], "{")
 	if start < 0 {
-		if blockStart, blockEnd, ok := extractToolHistoryBlock(captured, keyIdx); ok {
-			return captured[:blockStart], nil, captured[blockEnd:], true
-		}
 		start = keyIdx
 	}
 	obj, end, ok := extractJSONObjectFrom(captured, start)

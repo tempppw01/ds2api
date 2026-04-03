@@ -105,8 +105,16 @@ func (h *Handler) handleNonStream(w http.ResponseWriter, ctx context.Context, re
 	result := sse.CollectStream(resp, thinkingEnabled, true)
 
 	finalThinking := result.Thinking
-	finalText := sanitizeLeakedToolHistory(result.Text)
+	finalText := sanitizeLeakedOutput(result.Text)
 	respBody := openaifmt.BuildChatCompletion(completionID, model, finalPrompt, finalThinking, finalText, toolNames)
+	if result.OutputTokens > 0 {
+		if usage, ok := respBody["usage"].(map[string]any); ok {
+			usage["completion_tokens"] = result.OutputTokens
+			if prompt, ok := usage["prompt_tokens"].(int); ok {
+				usage["total_tokens"] = prompt + result.OutputTokens
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, respBody)
 }
 

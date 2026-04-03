@@ -8,7 +8,7 @@
 ![Stars](https://img.shields.io/github/stars/CJackHwang/ds2api.svg)
 ![Forks](https://img.shields.io/github/forks/CJackHwang/ds2api.svg)
 [![Release](https://img.shields.io/github/v/release/CJackHwang/ds2api?display_name=tag)](https://github.com/CJackHwang/ds2api/releases)
-[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](DEPLOY.en.md)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](docs/DEPLOY.en.md)
 [![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/L4CFHP)
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/CJackHwang/ds2api)
 
@@ -28,42 +28,63 @@ DS2API converts DeepSeek Web chat capability into OpenAI-compatible, Claude-comp
 
 ```mermaid
 flowchart LR
-    Client["🖥️ Clients\n(OpenAI / Claude / Gemini compat)"]
+    Client["🖥️ Clients / SDKs\n(OpenAI / Claude / Gemini)"]
+    Upstream["☁️ DeepSeek API"]
 
-    subgraph DS2API["DS2API Service"]
-        direction TB
-        CORS["CORS Middleware"]
-        Auth["🔐 Auth Middleware"]
+    subgraph DS2API["DS2API 3.x (Unified OpenAI Core)"]
+        Router["chi Router + Middleware\n(RequestID / RealIP / Logger / Recoverer / CORS)"]
 
-        subgraph Adapters["Adapter Layer"]
-            OA["OpenAI Adapter\n/v1/*"]
-            CA["Claude Adapter\n/anthropic/*"]
-            GA["Gemini Adapter\n/v1beta/models/*"]
+        subgraph Adapters["Protocol Adapters"]
+            OA["OpenAI\n/v1/*"]
+            CA["Claude\n/anthropic/* + /v1/messages"]
+            GA["Gemini\n/v1beta/models/* + /v1/models/*"]
+            Admin["Admin API\n/admin/*"]
+            WebUI["WebUI\n/admin (static hosting)"]
         end
 
-        subgraph Support["Support Modules"]
-            Pool["📦 Account Pool / Queue"]
-            PoW["⚙️ PoW WASM\n(wazero)"]
+        subgraph Runtime["Runtime + Core Capabilities"]
+            Bridge["CLIProxy Bridge\n(multi-protocol <-> OpenAI)"]
+            OAEngine["OpenAI ChatCompletions\n(unified tools + stream semantics)"]
+            Auth["Auth Resolver\n(API key / bearer / x-goog-api-key)"]
+            Pool["Account Pool + Queue\n(in-flight slots + wait queue)"]
+            DSClient["DeepSeek Client\n(session / auth / HTTP)"]
+            Pow["PoW WASM\n(wazero preload)"]
+            Tool["Tool Sieve\n(Go/Node semantic parity)"]
         end
-
-        Admin["🛠️ Admin API\n/admin/*"]
-        WebUI["🌐 WebUI\n(/admin)"]
     end
 
-    DS["☁️ DeepSeek API"]
+    Client --> Router
+    Router --> OA & CA & GA
+    Router --> Admin
+    Router --> WebUI
 
-    Client -- "Request" --> CORS --> Auth
-    Auth --> OA & CA & GA
-    OA & CA & GA -- "Call" --> DS
-    Auth --> Admin
-    OA & CA & GA -. "Rotate accounts" .-> Pool
-    OA & CA & GA -. "Compute PoW" .-> PoW
-    DS -- "Response" --> Client
+    OA --> OAEngine
+    CA & GA --> Bridge
+    Bridge --> OAEngine
+    OAEngine --> Auth
+    OAEngine -.account rotation.-> Pool
+    OAEngine -.tool-call parsing.-> Tool
+    OAEngine -.PoW solving.-> Pow
+    Auth --> DSClient
+    DSClient --> Upstream
+    Upstream --> DSClient
+    OAEngine --> Bridge
+    Bridge --> Client
 ```
 
 - **Backend**: Go (`cmd/ds2api/`, `api/`, `internal/`), no Python runtime
 - **Frontend**: React admin panel (`webui/`), served as static build at runtime
 - **Deployment**: local run, Docker, Vercel serverless, Linux systemd
+
+### 3.0 Architecture Changes (vs older releases)
+
+- **Unified routing core**: all protocol entries are now centralized through `internal/server/router.go`, with OpenAI / Claude / Gemini / Admin / WebUI routes registered in one tree to avoid multi-entry drift.
+- **Unified execution chain**: Claude/Gemini entries are translated by `internal/translatorcliproxy`, then executed through `openai.ChatCompletions` for shared tool-calling and stream semantics, then translated back to the client protocol.
+- **Cleaner adapter boundaries**: `internal/adapter/{claude,gemini}` handles protocol wrappers, while `internal/adapter/openai` remains the execution core; upstream DeepSeek calls are retained only in the OpenAI core.
+- **Tool-calling parity across runtimes**: Go (`internal/util`) and Vercel Node (`internal/js/helpers/stream-tool-sieve`) follow aligned parsing/anti-leak semantics across JSON / XML / invoke / text-kv inputs.
+- **Config/runtime separation**: static config (`config`) and runtime policy (`settings`) are managed independently via Admin APIs, enabling hot updates and password rotation with JWT invalidation.
+- **Streaming behavior upgrade**: `/v1/responses` and `/v1/chat/completions` now share a more consistent incremental tool-call emission strategy across SDK ecosystems.
+- **Improved operability**: `/healthz`, `/readyz`, `/admin/version`, and `/admin/dev/captures` form a tighter post-deploy diagnostics loop.
 
 ## Key Capabilities
 
@@ -144,7 +165,7 @@ Recommended per deployment mode:
 
 ### Option 1: Local Run
 
-**Prerequisites**: Go 1.24+, Node.js 20+ (only if building WebUI locally)
+**Prerequisites**: Go 1.26+, Node.js 20+ (only if building WebUI locally)
 
 ```bash
 # 1. Clone
@@ -166,8 +187,9 @@ Default URL: `http://localhost:5001`
 ### Option 2: Docker
 
 ```bash
-# 1. Prepare env file
+# 1. Prepare env file and config file
 cp .env.example .env
+cp config.example.json config.json
 
 # 2. Edit .env (at least set DS2API_ADMIN_KEY)
 #    DS2API_ADMIN_KEY=replace-with-a-strong-secret
@@ -213,7 +235,7 @@ base64 < config.json | tr -d '\n'
 
 > **Streaming note**: `/v1/chat/completions` on Vercel is routed to `api/chat-stream.js` (Node Runtime) for real-time SSE. Auth, account selection, and session/PoW preparation are still handled by the Go internal prepare endpoint; streaming output (including `tools`) is assembled on Node with Go-aligned anti-leak handling.
 
-For detailed deployment instructions, see the [Deployment Guide](DEPLOY.en.md).
+For detailed deployment instructions, see the [Deployment Guide](docs/DEPLOY.en.md).
 
 ### Option 4: Download Release Binaries
 
@@ -270,10 +292,6 @@ cp opencode.json.example opencode.json
   "compat": {
     "wide_input_strict_output": true
   },
-  "toolcall": {
-    "mode": "feature_match",
-    "early_emit_confidence": "high"
-  },
   "responses": {
     "store_ttl_seconds": 900
   },
@@ -290,7 +308,8 @@ cp opencode.json.example opencode.json
   "runtime": {
     "account_max_inflight": 2,
     "account_max_queue": 0,
-    "global_max_inflight": 0
+    "global_max_inflight": 0,
+    "token_refresh_interval_hours": 6
   },
   "auto_delete": {
     "sessions": false
@@ -303,12 +322,12 @@ cp opencode.json.example opencode.json
 - `token`: Even if set in `config.json`, it is cleared during load (DS2API does not read persisted tokens from config); runtime tokens are maintained/refreshed in memory only
 - `model_aliases`: Map common model names (GPT/Codex/Claude) to DeepSeek models
 - `compat.wide_input_strict_output`: Keep `true` (current default policy)
-- `toolcall`: Fixed to feature matching + high-confidence early emit
+- `toolcall`: Fixed to feature matching + high-confidence early emit, no longer configurable
 - `responses.store_ttl_seconds`: In-memory TTL for `/v1/responses/{id}`
 - `embeddings.provider`: Embeddings provider (`deterministic/mock/builtin` built-in)
 - `claude_mapping`: Maps `fast`/`slow` suffixes to corresponding DeepSeek models (still compatible with `claude_model_mapping`)
 - `admin`: Admin panel settings (JWT expiry, password hash, etc.), hot-reloadable via Admin Settings API
-- `runtime`: Runtime parameters (concurrency limits, queue sizes), hot-reloadable via Admin Settings API; `account_max_queue=0`/`global_max_inflight=0` means auto-calculate from recommended values
+- `runtime`: Runtime parameters (concurrency limits, queue sizes, managed token refresh interval), hot-reloadable via Admin Settings API; `account_max_queue=0`/`global_max_inflight=0` means auto-calculate from recommended values, `token_refresh_interval_hours=6` is the default forced re-login interval
 - `auto_delete.sessions`: Whether to auto-delete DeepSeek sessions after request completion (default `false`, hot-reloadable via Settings)
 
 ### Environment Variables
@@ -323,6 +342,7 @@ cp opencode.json.example opencode.json
 | `DS2API_CONFIG_PATH` | Config file path | `config.json` |
 | `DS2API_CONFIG_JSON` | Inline config (JSON or Base64) | — |
 | `CONFIG_JSON` | Legacy compatibility config input | — |
+| `DS2API_ENV_WRITEBACK` | Auto-write env-backed config to file and transition to file mode (`1/true/yes/on`) | Disabled |
 | `DS2API_WASM_PATH` | PoW WASM file path | Auto-detect |
 | `DS2API_STATIC_ADMIN_DIR` | Admin static assets dir | `static/admin` |
 | `DS2API_AUTO_BUILD_WEBUI` | Auto-build WebUI on startup | Enabled locally, disabled on Vercel |
@@ -341,6 +361,8 @@ cp opencode.json.example opencode.json
 | `VERCEL_PROJECT_ID` | Vercel project ID | — |
 | `VERCEL_TEAM_ID` | Vercel team ID | — |
 | `DS2API_VERCEL_PROTECTION_BYPASS` | Vercel deployment protection bypass for internal Node→Go calls | — |
+
+> Note: when `DS2API_CONFIG_JSON/CONFIG_JSON` is detected, the Admin UI shows mode risk and auto-persistence status (including `DS2API_CONFIG_PATH` and mode-transition hints).
 
 ## Authentication Modes
 
@@ -405,6 +427,7 @@ Response fields include:
 
 ```text
 ds2api/
+├── app/                     # Unified HTTP handler assembly (shared by local + serverless)
 ├── cmd/
 │   ├── ds2api/              # Local / container entrypoint
 │   └── ds2api-tests/        # End-to-end testsuite entrypoint
@@ -421,8 +444,8 @@ ds2api/
 │   ├── admin/               # Admin API handlers (incl. Settings hot-reload)
 │   ├── auth/                # Auth and JWT
 │   ├── claudeconv/          # Claude message format conversion
-│   ├── compat/              # Compatibility helpers
-│   ├── config/              # Config loading and hot-reload
+│   ├── compat/              # Go-version compatibility and regression helpers
+│   ├── config/              # Config loading, validation, and hot-reload
 │   ├── deepseek/            # DeepSeek API client, PoW WASM
 │   ├── js/                  # Node runtime stream/compat logic
 │   ├── devcapture/          # Dev packet capture module
@@ -431,7 +454,10 @@ ds2api/
 │   ├── server/              # HTTP routing and middleware (chi router)
 │   ├── sse/                 # SSE parsing utilities
 │   ├── stream/              # Unified stream consumption engine
+│   ├── testsuite/           # End-to-end testsuite framework and case orchestration
+│   ├── translatorcliproxy/  # CLIProxy bridge and stream writer components
 │   ├── util/                # Common utilities
+│   ├── version/             # Version parsing/comparison and tag normalization
 │   └── webui/               # WebUI static file serving and auto-build
 ├── webui/                   # React WebUI source (Vite + Tailwind)
 │   └── src/
@@ -443,7 +469,9 @@ ds2api/
 │   └── build-webui.sh       # Manual WebUI build script
 ├── tests/
 │   ├── compat/              # Compatibility fixtures and expected outputs
+│   ├── node/                # Node-side unit tests (chat-stream / tool-sieve)
 │   └── scripts/             # Unified test script entrypoints (unit/e2e)
+├── docs/                    # Deployment / contributing / testing docs
 ├── static/admin/            # WebUI build output (not committed to Git)
 ├── .github/
 │   ├── workflows/           # GitHub Actions (quality gates + release automation)
@@ -463,9 +491,9 @@ ds2api/
 | Document | Description |
 | --- | --- |
 | [API.md](API.md) / [API.en.md](API.en.md) | API reference with request/response examples |
-| [DEPLOY.md](DEPLOY.md) / [DEPLOY.en.md](DEPLOY.en.md) | Deployment guide (local/Docker/Vercel/systemd) |
-| [CONTRIBUTING.md](CONTRIBUTING.md) / [CONTRIBUTING.en.md](CONTRIBUTING.en.md) | Contributing guide |
-| [TESTING.md](TESTING.md) | Testsuite guide |
+| [DEPLOY.md](docs/DEPLOY.md) / [DEPLOY.en.md](docs/DEPLOY.en.md) | Deployment guide (local/Docker/Vercel/systemd) |
+| [CONTRIBUTING.md](docs/CONTRIBUTING.md) / [CONTRIBUTING.en.md](docs/CONTRIBUTING.en.md) | Contributing guide |
+| [TESTING.md](docs/TESTING.md) | Testsuite guide |
 
 ## Testing
 

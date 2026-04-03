@@ -1,4 +1,4 @@
-FROM node:20 AS webui-builder
+FROM node:24 AS webui-builder
 
 WORKDIR /app/webui
 COPY webui/package.json webui/package-lock.json ./
@@ -6,7 +6,7 @@ RUN npm ci
 COPY webui ./
 RUN npm run build
 
-FROM golang:1.24 AS go-builder
+FROM golang:1.26 AS go-builder
 WORKDIR /app
 ARG TARGETOS
 ARG TARGETARCH
@@ -34,7 +34,7 @@ CMD ["/usr/local/bin/ds2api"]
 
 FROM runtime-base AS runtime-from-source
 COPY --from=go-builder /out/ds2api /usr/local/bin/ds2api
-COPY --from=go-builder /app/sha3_wasm_bg.7b9ca65ddd.wasm /app/sha3_wasm_bg.7b9ca65ddd.wasm
+COPY --from=go-builder /app/internal/deepseek/assets/sha3_wasm_bg.7b9ca65ddd.wasm /app/sha3_wasm_bg.7b9ca65ddd.wasm
 COPY --from=go-builder /app/config.example.json /app/config.example.json
 COPY --from=webui-builder /app/static/admin /app/static/admin
 

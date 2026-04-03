@@ -24,7 +24,7 @@
 
 | 依赖 | 最低版本 | 说明 |
 | --- | --- | --- |
-| Go | 1.24+ | 编译后端 |
+| Go | 1.26+ | 编译后端 |
 | Node.js | 20+ | 仅在需要本地构建 WebUI 时 |
 | npm | 随 Node.js 提供 | 安装 WebUI 依赖 |
 
@@ -111,8 +111,9 @@ go build -o ds2api ./cmd/ds2api
 ### 2.1 基本步骤
 
 ```bash
-# 复制环境变量模板
+# 复制环境变量模板和配置文件
 cp .env.example .env
+cp config.example.json config.json
 
 # 编辑 .env（请改成你的强密码），至少设置：
 #   DS2API_ADMIN_KEY=your-admin-key
@@ -248,6 +249,7 @@ VERCEL_TEAM_ID=team_xxxxxxxxxxxx   # 个人账号可留空
 | `DS2API_ACCOUNT_QUEUE_SIZE` | 同上（兼容别名） | — |
 | `DS2API_GLOBAL_MAX_INFLIGHT` | 全局并发上限 | `recommended_concurrency` |
 | `DS2API_MAX_INFLIGHT` | 同上（兼容别名） | — |
+| `DS2API_ENV_WRITEBACK` | 检测到 `DS2API_CONFIG_JSON` 时自动写入 `DS2API_CONFIG_PATH`，并在成功后转为文件模式（`1/true/yes/on`） | 关闭 |
 | `DS2API_VERCEL_INTERNAL_SECRET` | 混合流式内部鉴权 | 回退用 `DS2API_ADMIN_KEY` |
 | `DS2API_VERCEL_STREAM_LEASE_TTL_SECONDS` | 流式 lease TTL | `900` |
 | `VERCEL_TOKEN` | Vercel 同步 token | — |
@@ -399,7 +401,7 @@ cp config.example.json config.json
 docker pull ghcr.io/cjackhwang/ds2api:latest
 
 # 指定版本（示例）
-docker pull ghcr.io/cjackhwang/ds2api:v2.1.2
+docker pull ghcr.io/cjackhwang/ds2api:v3.0.0
 ```
 
 ---
@@ -456,8 +458,8 @@ server {
 # 将编译好的二进制文件和相关文件复制到目标目录
 sudo mkdir -p /opt/ds2api
 sudo cp ds2api config.json /opt/ds2api/
-# 可选：若你希望使用外置 WASM 文件（覆盖内置版本）
-# sudo cp sha3_wasm_bg.7b9ca65ddd.wasm /opt/ds2api/
+# 可选：若你希望使用外置 WASM 文件（覆盖内置版本，来自 release 包或构建产物）
+# sudo cp /path/to/sha3_wasm_bg.7b9ca65ddd.wasm /opt/ds2api/
 sudo cp -r static/admin /opt/ds2api/static/admin
 ```
 

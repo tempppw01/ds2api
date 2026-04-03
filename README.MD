@@ -8,7 +8,7 @@
 ![Stars](https://img.shields.io/github/stars/CJackHwang/ds2api.svg)
 ![Forks](https://img.shields.io/github/forks/CJackHwang/ds2api.svg)
 [![Release](https://img.shields.io/github/v/release/CJackHwang/ds2api?display_name=tag)](https://github.com/CJackHwang/ds2api/releases)
-[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](DEPLOY.md)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](docs/DEPLOY.md)
 [![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/L4CFHP)
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/CJackHwang/ds2api)
 
@@ -28,42 +28,63 @@
 
 ```mermaid
 flowchart LR
-    Client["🖥️ 客户端\n(OpenAI / Claude / Gemini 兼容)"]
+    Client["🖥️ 客户端 / SDK\n(OpenAI / Claude / Gemini)"]
+    Upstream["☁️ DeepSeek API"]
 
-    subgraph DS2API["DS2API 服务"]
-        direction TB
-        CORS["CORS 中间件"]
-        Auth["🔐 鉴权中间件"]
+    subgraph DS2API["DS2API 3.x（统一 OpenAI 内核）"]
+        Router["chi Router + 中间件\n(RequestID / RealIP / Logger / Recoverer / CORS)"]
 
-        subgraph Adapters["适配器层"]
-            OA["OpenAI 适配器\n/v1/*"]
-            CA["Claude 适配器\n/anthropic/*"]
-            GA["Gemini 适配器\n/v1beta/models/*"]
+        subgraph Adapters["协议适配层"]
+            OA["OpenAI\n/v1/*"]
+            CA["Claude\n/anthropic/* + /v1/messages"]
+            GA["Gemini\n/v1beta/models/* + /v1/models/*"]
+            Admin["Admin API\n/admin/*"]
+            WebUI["WebUI\n/admin（静态托管）"]
         end
 
-        subgraph Support["支撑模块"]
-            Pool["📦 账号池 / 并发队列"]
-            PoW["⚙️ PoW WASM\n(wazero)"]
+        subgraph Runtime["运行时核心能力"]
+            Bridge["CLIProxy 转换桥\n(多协议 <-> OpenAI)"]
+            OAEngine["OpenAI ChatCompletions\n(统一工具调用与流式语义)"]
+            Auth["Auth Resolver\n(API key / bearer / x-goog-api-key)"]
+            Pool["Account Pool + Queue\n(并发槽位 + 等待队列)"]
+            DSClient["DeepSeek Client\n(Session / Auth / HTTP)"]
+            Pow["PoW WASM\n(wazero 预加载)"]
+            Tool["Tool Sieve\n(Go/Node 语义对齐)"]
         end
-
-        Admin["🛠️ Admin API\n/admin/*"]
-        WebUI["🌐 WebUI\n(/admin)"]
     end
 
-    DS["☁️ DeepSeek API"]
+    Client --> Router
+    Router --> OA & CA & GA
+    Router --> Admin
+    Router --> WebUI
 
-    Client -- "请求" --> CORS --> Auth
-    Auth --> OA & CA & GA
-    OA & CA & GA -- "调用" --> DS
-    Auth --> Admin
-    OA & CA & GA -. "轮询选账号" .-> Pool
-    OA & CA & GA -. "计算 PoW" .-> PoW
-    DS -- "响应" --> Client
+    OA --> OAEngine
+    CA & GA --> Bridge
+    Bridge --> OAEngine
+    OAEngine --> Auth
+    OAEngine -.账号轮询.-> Pool
+    OAEngine -.工具调用解析.-> Tool
+    OAEngine -.PoW 计算.-> Pow
+    Auth --> DSClient
+    DSClient --> Upstream
+    Upstream --> DSClient
+    OAEngine --> Bridge
+    Bridge --> Client
 ```
 
 - **后端**：Go（`cmd/ds2api/`、`api/`、`internal/`），不依赖 Python 运行时
 - **前端**：React 管理台（`webui/`），运行时托管静态构建产物
 - **部署**：本地运行、Docker、Vercel Serverless、Linux systemd
+
+### 3.0 底层架构调整（相较旧版本）
+
+- **统一路由内核**：所有协议入口统一汇聚到 `internal/server/router.go`，并在同一路由树中注册 OpenAI / Claude / Gemini / Admin / WebUI 路由，避免多入口行为漂移。
+- **统一执行链路**：Claude / Gemini 入口先经 `internal/translatorcliproxy` 做协议转换，再进入 `openai.ChatCompletions` 统一处理工具调用与流式语义，最后再转换回原协议响应。
+- **适配器分层更清晰**：`internal/adapter/{claude,gemini}` 负责入口/出口协议封装，`internal/adapter/openai` 负责核心执行，DeepSeek 侧调用只保留在 OpenAI 内核中。
+- **Tool Calling 双运行时对齐**：Go 侧（`internal/util`）与 Vercel Node 侧（`internal/js/helpers/stream-tool-sieve`）保持一致的解析/防泄漏语义，覆盖 JSON / XML / invoke / text-kv 多风格输入。
+- **配置与运行时设置解耦**：静态配置（`config`）与运行时策略（`settings`）通过 Admin API 分离管理，支持热更新和密码轮换失效旧 JWT。
+- **流式能力升级**：`/v1/responses` 与 `/v1/chat/completions` 共享更一致的工具调用增量输出策略，降低不同 SDK 下的行为差异。
+- **可观测与可运维增强**：`/healthz`、`/readyz`、`/admin/version`、`/admin/dev/captures` 形成排障闭环，便于发布后验证。
 
 ## 核心能力
 
@@ -144,7 +165,7 @@ cp config.example.json config.json
 
 ### 方式一：本地运行
 
-**前置要求**：Go 1.24+，Node.js 20+（仅在需要构建 WebUI 时）
+**前置要求**：Go 1.26+，Node.js 20+（仅在需要构建 WebUI 时）
 
 ```bash
 # 1. 克隆仓库
@@ -166,8 +187,9 @@ go run ./cmd/ds2api
 ### 方式二：Docker 运行
 
 ```bash
-# 1. 准备环境变量文件
+# 1. 准备环境变量和配置文件
 cp .env.example .env
+cp config.example.json config.json
 
 # 2. 编辑 .env（至少设置 DS2API_ADMIN_KEY）
 #    DS2API_ADMIN_KEY=请替换为强密码
@@ -213,7 +235,7 @@ base64 < config.json | tr -d '\n'
 
 > **流式说明**：`/v1/chat/completions` 在 Vercel 上默认走 `api/chat-stream.js`（Node Runtime）以保证实时 SSE。鉴权、账号选择、会话/PoW 准备仍由 Go 内部 prepare 接口完成；流式响应（含 `tools`）在 Node 侧执行与 Go 对齐的输出组装与防泄漏处理。
 
-详细部署说明请参阅 [部署指南](DEPLOY.md)。
+详细部署说明请参阅 [部署指南](docs/DEPLOY.md)。
 
 ### 方式四：下载 Release 构建包
 
@@ -270,10 +292,6 @@ cp opencode.json.example opencode.json
   "compat": {
     "wide_input_strict_output": true
   },
-  "toolcall": {
-    "mode": "feature_match",
-    "early_emit_confidence": "high"
-  },
   "responses": {
     "store_ttl_seconds": 900
   },
@@ -290,7 +308,8 @@ cp opencode.json.example opencode.json
   "runtime": {
     "account_max_inflight": 2,
     "account_max_queue": 0,
-    "global_max_inflight": 0
+    "global_max_inflight": 0,
+    "token_refresh_interval_hours": 6
   },
   "auto_delete": {
     "sessions": false
@@ -303,12 +322,12 @@ cp opencode.json.example opencode.json
 - `token`：配置文件中即使填写也会在加载时被清空（不会从 `config.json` 读取 token）；实际 token 仅在运行时内存中维护并自动刷新
 - `model_aliases`：常见模型名（如 GPT/Codex/Claude）到 DeepSeek 模型的映射
 - `compat.wide_input_strict_output`：建议保持 `true`（当前实现默认宽进严出）
-- `toolcall`：固定采用特征匹配 + 高置信早发策略
+- `toolcall`：策略已固定为特征匹配 + 高置信早发，不再作为可配置项
 - `responses.store_ttl_seconds`：`/v1/responses/{id}` 的内存缓存 TTL
 - `embeddings.provider`：embedding 提供方（当前内置 `deterministic/mock/builtin`）
 - `claude_mapping`：字典中 `fast`/`slow` 后缀映射到对应 DeepSeek 模型（兼容读取 `claude_model_mapping`）
 - `admin`：管理后台设置（JWT 过期时间、密码哈希等），可通过 Admin Settings API 热更新
-- `runtime`：运行时参数（并发限制、队列大小），可通过 Admin Settings API 热更新；`account_max_queue=0`/`global_max_inflight=0` 表示按推荐值自动计算
+- `runtime`：运行时参数（并发限制、队列大小、托管账号 token 刷新间隔），可通过 Admin Settings API 热更新；`account_max_queue=0`/`global_max_inflight=0` 表示按推荐值自动计算，`token_refresh_interval_hours=6` 为默认强制重登间隔
 - `auto_delete.sessions`：是否在请求结束后自动清理 DeepSeek 会话（默认 `false`，可在 Settings 热更新）
 
 ### 环境变量
@@ -323,6 +342,7 @@ cp opencode.json.example opencode.json
 | `DS2API_CONFIG_PATH` | 配置文件路径 | `config.json` |
 | `DS2API_CONFIG_JSON` | 直接注入配置（JSON 或 Base64） | — |
 | `CONFIG_JSON` | 旧版兼容配置注入 | — |
+| `DS2API_ENV_WRITEBACK` | 环境变量模式下自动写回配置文件并切换文件模式（`1/true/yes/on`） | 关闭 |
 | `DS2API_WASM_PATH` | PoW WASM 文件路径 | 自动查找 |
 | `DS2API_STATIC_ADMIN_DIR` | 管理台静态文件目录 | `static/admin` |
 | `DS2API_AUTO_BUILD_WEBUI` | 启动时自动构建 WebUI | 本地开启，Vercel 关闭 |
@@ -344,6 +364,8 @@ cp opencode.json.example opencode.json
 | `VERCEL_PROJECT_ID` | Vercel 项目 ID | — |
 | `VERCEL_TEAM_ID` | Vercel 团队 ID | — |
 | `DS2API_VERCEL_PROTECTION_BYPASS` | Vercel 部署保护绕过密钥（内部 Node→Go 调用） | — |
+
+> 提示：当检测到 `DS2API_CONFIG_JSON/CONFIG_JSON` 时，管理台会显示当前模式风险与自动持久化状态（含 `DS2API_CONFIG_PATH` 路径与模式切换说明）。
 
 ## 鉴权模式
 
@@ -411,6 +433,7 @@ go run ./cmd/ds2api
 
 ```text
 ds2api/
+├── app/                     # 统一 HTTP Handler 组装层（供本地与 Serverless 复用）
 ├── cmd/
 │   ├── ds2api/              # 本地 / 容器启动入口
 │   └── ds2api-tests/        # 端到端测试集入口
@@ -427,8 +450,8 @@ ds2api/
 │   ├── admin/               # Admin API handlers（含 Settings 热更新）
 │   ├── auth/                # 鉴权与 JWT
 │   ├── claudeconv/          # Claude 消息格式转换
-│   ├── compat/              # 兼容性辅助
-│   ├── config/              # 配置加载与热更新
+│   ├── compat/              # Go 版本兼容与回归测试辅助
+│   ├── config/              # 配置加载、校验与热更新
 │   ├── deepseek/            # DeepSeek API 客户端、PoW WASM
 │   ├── js/                  # Node 运行时流式处理与兼容逻辑
 │   ├── devcapture/          # 开发抓包模块
@@ -437,7 +460,10 @@ ds2api/
 │   ├── server/              # HTTP 路由与中间件（chi router）
 │   ├── sse/                 # SSE 解析工具
 │   ├── stream/              # 统一流式消费引擎
+│   ├── testsuite/           # 端到端测试框架与用例编排
+│   ├── translatorcliproxy/  # CLIProxy 桥接与流写入组件
 │   ├── util/                # 通用工具函数
+│   ├── version/             # 版本解析 / 比较与 tag 规范化
 │   └── webui/               # WebUI 静态文件托管与自动构建
 ├── webui/                   # React WebUI 源码（Vite + Tailwind）
 │   └── src/
@@ -449,7 +475,9 @@ ds2api/
 │   └── build-webui.sh       # WebUI 手动构建脚本
 ├── tests/
 │   ├── compat/              # 兼容性测试夹具与期望输出
+│   ├── node/                # Node 侧单元测试（chat-stream / tool-sieve）
 │   └── scripts/             # 统一测试脚本入口（unit/e2e）
+├── docs/                    # 部署 / 贡献 / 测试等辅助文档
 ├── static/admin/            # WebUI 构建产物（不提交到 Git）
 ├── .github/
 │   ├── workflows/           # GitHub Actions（质量门禁 + Release 自动构建）
@@ -469,9 +497,9 @@ ds2api/
 | 文档 | 说明 |
 | --- | --- |
 | [API.md](API.md) / [API.en.md](API.en.md) | API 接口文档（含请求/响应示例） |
-| [DEPLOY.md](DEPLOY.md) / [DEPLOY.en.md](DEPLOY.en.md) | 部署指南（本地/Docker/Vercel/systemd） |
-| [CONTRIBUTING.md](CONTRIBUTING.md) / [CONTRIBUTING.en.md](CONTRIBUTING.en.md) | 贡献指南 |
-| [TESTING.md](TESTING.md) | 测试集使用指南 |
+| [DEPLOY.md](docs/DEPLOY.md) / [DEPLOY.en.md](docs/DEPLOY.en.md) | 部署指南（本地/Docker/Vercel/systemd） |
+| [CONTRIBUTING.md](docs/CONTRIBUTING.md) / [CONTRIBUTING.en.md](docs/CONTRIBUTING.en.md) | 贡献指南 |
+| [TESTING.md](docs/TESTING.md) | 测试集使用指南 |
 
 ## 测试
 
@@ -501,7 +529,7 @@ npm ci --prefix webui && npm run build --prefix webui
 
 ## 测试
 
-详细测试指南请参阅 [TESTING.md](TESTING.md)。
+详细测试指南请参阅 [docs/TESTING.md](docs/TESTING.md)。
 
 ### 快速测试命令
 

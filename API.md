@@ -31,6 +31,13 @@
 | 健康检查 | `GET /healthz`、`GET /readyz` |
 | CORS | 已启用（`Access-Control-Allow-Origin: *`，允许 `Content-Type`, `Authorization`, `X-API-Key`, `X-Ds2-Target-Account`, `X-Vercel-Protection-Bypass`） |
 
+### 3.0 接口适配层说明
+
+- OpenAI / Claude / Gemini 三套协议已统一挂在同一 `chi` 路由树上，由 `internal/server/router.go` 负责装配。
+- 适配器层职责收敛为：**请求归一化 → DeepSeek 调用 → 协议形态渲染**，减少历史版本中“同能力多处实现”的分叉。
+- Tool Calling 的解析策略在 Go 与 Node Runtime 间保持一致：优先结构化解析（JSON/XML/invoke/markup），并在流式场景执行防泄漏筛分。
+- `Admin API` 将配置与运行时策略分开：`/admin/config*` 管静态配置，`/admin/settings*` 管运行时行为。
+
 ---
 
 ## 配置最佳实践
@@ -91,7 +98,9 @@ Gemini 兼容客户端还可以使用 `x-goog-api-key`、`?key=` 或 `?api_key=`
 | 方法 | 路径 | 鉴权 | 说明 |
 | --- | --- | --- | --- |
 | GET | `/healthz` | 无 | 存活探针 |
+| HEAD | `/healthz` | 无 | 存活探针（无响应体） |
 | GET | `/readyz` | 无 | 就绪探针 |
+| HEAD | `/readyz` | 无 | 就绪探针（无响应体） |
 | GET | `/v1/models` | 无 | OpenAI 模型列表 |
 | GET | `/v1/models/{id}` | 无 | OpenAI 单模型查询（支持 alias 入参） |
 | POST | `/v1/chat/completions` | 业务 | OpenAI 对话补全 |
@@ -596,6 +605,9 @@ data: {"type":"message_stop"}
 {
   "keys": ["k1", "k2"],
   "env_backed": false,
+  "env_source_present": true,
+  "env_writeback_enabled": true,
+  "config_path": "/data/config.json",
   "accounts": [
     {
       "identifier": "user@example.com",
@@ -638,24 +650,25 @@ data: {"type":"message_stop"}
 
 - `success`
 - `admin`（`has_password_hash`、`jwt_expire_hours`、`jwt_valid_after_unix`、`default_password_warning`）
-- `runtime`（`account_max_inflight`、`account_max_queue`、`global_max_inflight`）
-- `toolcall` / `responses` / `embeddings`
+- `runtime`（`account_max_inflight`、`account_max_queue`、`global_max_inflight`、`token_refresh_interval_hours`）
+- `responses` / `embeddings`
 - `auto_delete`（`sessions`）
 - `claude_mapping` / `model_aliases`
 - `env_backed`、`needs_vercel_sync`
+- `toolcall` 策略已固定为 `feature_match + high`，不再通过 settings 返回或修改
 
 ### `PUT /admin/settings`
 
 热更新运行时设置。支持更新：
 
 - `admin.jwt_expire_hours`
-- `runtime.account_max_inflight` / `runtime.account_max_queue` / `runtime.global_max_inflight`
-- `toolcall.mode` / `toolcall.early_emit_confidence`
+- `runtime.account_max_inflight` / `runtime.account_max_queue` / `runtime.global_max_inflight` / `runtime.token_refresh_interval_hours`
 - `responses.store_ttl_seconds`
 - `embeddings.provider`
 - `auto_delete.sessions`
 - `claude_mapping`
 - `model_aliases`
+- `toolcall` 策略已固定，不再作为可写入字段
 
 ### `POST /admin/settings/password`
 
@@ -678,7 +691,7 @@ data: {"type":"message_stop"}
 
 请求可直接传配置对象，或使用 `{"config": {...}, "mode":"merge"}` 包裹格式。
 也支持在查询参数里传 `?mode=merge` / `?mode=replace`。
-导入时会接受 `keys`、`accounts`、`claude_mapping` / `claude_model_mapping`、`model_aliases`、`admin`、`runtime`、`toolcall`、`responses`、`embeddings`、`auto_delete` 等字段。
+导入时会接受 `keys`、`accounts`、`claude_mapping` / `claude_model_mapping`、`model_aliases`、`admin`、`runtime`、`responses`、`embeddings`、`auto_delete` 等字段；`toolcall` 相关字段会被忽略。
 
 ### `GET /admin/config/export`
 
@@ -933,15 +946,15 @@ data: {"type":"message_stop"}
 ```json
 {
   "success": true,
-  "current_version": "2.3.5",
-  "current_tag": "v2.3.5",
+  "current_version": "3.0.0",
+  "current_tag": "v3.0.0",
   "source": "file:VERSION",
   "checked_at": "2026-03-29T00:00:00Z",
-  "latest_tag": "v2.3.6",
-  "latest_version": "2.3.6",
-  "release_url": "https://github.com/CJackHwang/ds2api/releases/tag/v2.3.6",
+  "latest_tag": "v3.0.0",
+  "latest_version": "3.0.0",
+  "release_url": "https://github.com/CJackHwang/ds2api/releases/tag/v3.0.0",
   "published_at": "2026-03-28T12:00:00Z",
-  "has_update": true
+  "has_update": false
 }
 ```
 
