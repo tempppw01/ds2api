@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"ds2api/internal/toolcall"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -8,7 +9,6 @@ import (
 	openaifmt "ds2api/internal/format/openai"
 	"ds2api/internal/sse"
 	streamengine "ds2api/internal/stream"
-	"ds2api/internal/util"
 )
 
 type chatStreamRuntime struct {
@@ -37,7 +37,6 @@ type chatStreamRuntime struct {
 	streamToolNames   map[int]string
 	thinking          strings.Builder
 	text              strings.Builder
-	outputTokens      int
 }
 
 func newChatStreamRuntime(
@@ -102,7 +101,7 @@ func (s *chatStreamRuntime) sendDone() {
 func (s *chatStreamRuntime) finalize(finishReason string) {
 	finalThinking := s.thinking.String()
 	finalText := cleanVisibleOutput(s.text.String(), s.stripReferenceMarkers)
-	detected := util.ParseStandaloneToolCallsDetailed(finalText, s.toolNames)
+	detected := toolcall.ParseStandaloneToolCallsDetailed(finalText, s.toolNames)
 	if len(detected.Calls) > 0 && !s.toolCallsDoneEmitted {
 		finishReason = "tool_calls"
 		delta := map[string]any{
@@ -170,12 +169,6 @@ func (s *chatStreamRuntime) finalize(finishReason string) {
 		finishReason = "tool_calls"
 	}
 	usage := openaifmt.BuildChatUsage(s.finalPrompt, finalThinking, finalText)
-	if s.outputTokens > 0 {
-		usage["completion_tokens"] = s.outputTokens
-		if prompt, ok := usage["prompt_tokens"].(int); ok {
-			usage["total_tokens"] = prompt + s.outputTokens
-		}
-	}
 	s.sendChunk(openaifmt.BuildChatStreamChunk(
 		s.completionID,
 		s.created,
@@ -189,9 +182,6 @@ func (s *chatStreamRuntime) finalize(finishReason string) {
 func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedDecision {
 	if !parsed.Parsed {
 		return streamengine.ParsedDecision{}
-	}
-	if parsed.OutputTokens > 0 {
-		s.outputTokens = parsed.OutputTokens
 	}
 	if parsed.ContentFilter {
 		return streamengine.ParsedDecision{Stop: true, StopReason: streamengine.StopReasonHandlerRequested}
@@ -243,7 +233,7 @@ func (s *chatStreamRuntime) onParsed(parsed sse.LineResult) streamengine.ParsedD
 						if !s.emitEarlyToolDeltas {
 							continue
 						}
-						filtered := filterIncrementalToolCallDeltasByAllowed(evt.ToolCallDeltas, s.toolNames, s.streamToolNames)
+						filtered := filterIncrementalToolCallDeltasByAllowed(evt.ToolCallDeltas, s.streamToolNames)
 						if len(filtered) == 0 {
 							continue
 						}

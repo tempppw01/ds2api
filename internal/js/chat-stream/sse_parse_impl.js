@@ -20,6 +20,10 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
     };
   }
 
+  const usage = extractAccumulatedTokenUsage(chunk);
+  const promptTokens = usage.prompt;
+  const outputTokens = usage.output;
+
   if (Object.prototype.hasOwnProperty.call(chunk, 'error')) {
     return {
       parsed: true,
@@ -27,13 +31,13 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
       finished: true,
       contentFilter: false,
       errorMessage: formatErrorMessage(chunk.error),
-      outputTokens: 0,
+      promptTokens,
+      outputTokens,
       newType: currentType,
     };
   }
 
   const pathValue = asString(chunk.p);
-  const outputTokens = extractAccumulatedTokenUsage(chunk);
 
   if (hasContentFilterStatus(chunk)) {
     return {
@@ -42,6 +46,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
       finished: true,
       contentFilter: true,
       errorMessage: '',
+      promptTokens,
       outputTokens,
       newType: currentType,
     };
@@ -54,6 +59,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
       finished: false,
       contentFilter: false,
       errorMessage: '',
+      promptTokens,
       outputTokens,
       newType: currentType,
     };
@@ -66,6 +72,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
         finished: true,
         contentFilter: false,
         errorMessage: '',
+        promptTokens,
         outputTokens,
         newType: currentType,
       };
@@ -76,6 +83,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
       finished: false,
       contentFilter: false,
       errorMessage: '',
+      promptTokens,
       outputTokens,
       newType: currentType,
     };
@@ -88,6 +96,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
       finished: false,
       contentFilter: false,
       errorMessage: '',
+      promptTokens,
       outputTokens,
       newType: currentType,
     };
@@ -156,6 +165,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
         finished: true,
         contentFilter: false,
         errorMessage: '',
+        promptTokens,
         outputTokens,
         newType,
       };
@@ -167,6 +177,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
         finished: false,
         contentFilter: false,
         errorMessage: '',
+        promptTokens,
         outputTokens,
         newType,
       };
@@ -181,6 +192,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
       finished: false,
       contentFilter: false,
       errorMessage: '',
+      promptTokens,
       outputTokens,
       newType,
     };
@@ -195,6 +207,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
         finished: true,
         contentFilter: false,
         errorMessage: '',
+        promptTokens,
         outputTokens,
         newType,
       };
@@ -206,6 +219,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
       finished: false,
       contentFilter: false,
       errorMessage: '',
+      promptTokens,
       outputTokens,
       newType,
     };
@@ -241,6 +255,7 @@ function parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenc
     finished: false,
     contentFilter: false,
     errorMessage: '',
+    promptTokens,
     outputTokens,
     newType,
   };
@@ -428,47 +443,10 @@ function hasContentFilterStatusValue(v) {
 }
 
 function extractAccumulatedTokenUsage(chunk) {
-  return findAccumulatedTokenUsage(chunk);
-}
-
-function findAccumulatedTokenUsage(v) {
-  if (Array.isArray(v)) {
-    for (const item of v) {
-      const n = findAccumulatedTokenUsage(item);
-      if (n > 0) {
-        return n;
-      }
-    }
-    return 0;
-  }
-  if (!v || typeof v !== 'object') {
-    return 0;
-  }
-  const pathValue = asString(v.p);
-  if (pathValue && pathValue.toLowerCase().includes('accumulated_token_usage')) {
-    const n = toInt(v.v);
-    if (n > 0) {
-      return n;
-    }
-  }
-  const direct = toInt(v.accumulated_token_usage);
-  if (direct > 0) {
-    return direct;
-  }
-  for (const value of Object.values(v)) {
-    const n = findAccumulatedTokenUsage(value);
-    if (n > 0) {
-      return n;
-    }
-  }
-  return 0;
-}
-
-function toInt(v) {
-  if (typeof v !== 'number' || !Number.isFinite(v)) {
-    return 0;
-  }
-  return Math.trunc(v);
+  // 临时策略：忽略上游 usage 字段（accumulated_token_usage / token_usage），
+  // 统一使用内部估算计数，避免上下文累计口径误差。
+  void chunk;
+  return { prompt: 0, output: 0 };
 }
 
 function formatErrorMessage(v) {

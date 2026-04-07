@@ -1,9 +1,8 @@
 package openai
 
 import (
+	"ds2api/internal/toolcall"
 	"strings"
-
-	"ds2api/internal/util"
 )
 
 type toolStreamSieveState struct {
@@ -12,7 +11,7 @@ type toolStreamSieveState struct {
 	capturing        bool
 	recentTextTail   string
 	pendingToolRaw   string
-	pendingToolCalls []util.ParsedToolCall
+	pendingToolCalls []toolcall.ParsedToolCall
 	disableDeltas    bool
 	toolNameSent     bool
 	toolName         string
@@ -24,7 +23,7 @@ type toolStreamSieveState struct {
 
 type toolStreamEvent struct {
 	Content        string
-	ToolCalls      []util.ParsedToolCall
+	ToolCalls      []toolcall.ParsedToolCall
 	ToolCallDeltas []toolCallDelta
 }
 

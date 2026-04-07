@@ -1,12 +1,14 @@
-package util
+package toolcall
 
 import (
 	"regexp"
 	"strings"
 )
 
+//nolint:unused // retained for policy-level tool-name matching compatibility.
 var toolNameLoosePattern = regexp.MustCompile(`[^a-z0-9]+`)
 
+//nolint:unused // retained for policy-level tool-name matching compatibility.
 func resolveAllowedToolNameWithLooseMatch(name string, allowed map[string]struct{}, allowedCanonical map[string]string) string {
 	if _, ok := allowed[name]; ok {
 		return name

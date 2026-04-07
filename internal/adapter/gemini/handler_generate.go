@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"bytes"
+	"ds2api/internal/toolcall"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -57,7 +58,7 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream 
 		rec := httptest.NewRecorder()
 		h.OpenAI.ChatCompletions(rec, proxyReq)
 		res := rec.Result()
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		body, _ := io.ReadAll(res.Body)
 		for k, vv := range res.Header {
 			for _, v := range vv {
@@ -87,7 +88,7 @@ func (h *Handler) proxyViaOpenAI(w http.ResponseWriter, r *http.Request, stream 
 	rec := httptest.NewRecorder()
 	h.OpenAI.ChatCompletions(rec, proxyReq)
 	res := rec.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		for k, vv := range res.Header {
@@ -131,8 +132,9 @@ func writeGeminiErrorFromOpenAI(w http.ResponseWriter, status int, raw []byte) {
 	writeGeminiError(w, status, message)
 }
 
+//nolint:unused // retained for native Gemini non-stream handling path.
 func (h *Handler) handleNonStreamGenerateContent(w http.ResponseWriter, resp *http.Response, model, finalPrompt string, thinkingEnabled bool, toolNames []string) {
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		writeGeminiError(w, resp.StatusCode, strings.TrimSpace(string(body)))
@@ -147,13 +149,13 @@ func (h *Handler) handleNonStreamGenerateContent(w http.ResponseWriter, resp *ht
 		cleanVisibleOutput(result.Thinking, stripReferenceMarkers),
 		cleanVisibleOutput(result.Text, stripReferenceMarkers),
 		toolNames,
-		result.OutputTokens,
 	))
 }
 
-func buildGeminiGenerateContentResponse(model, finalPrompt, finalThinking, finalText string, toolNames []string, outputTokens int) map[string]any {
+//nolint:unused // retained for native Gemini non-stream handling path.
+func buildGeminiGenerateContentResponse(model, finalPrompt, finalThinking, finalText string, toolNames []string) map[string]any {
 	parts := buildGeminiPartsFromFinal(finalText, finalThinking, toolNames)
-	usage := buildGeminiUsage(finalPrompt, finalThinking, finalText, outputTokens)
+	usage := buildGeminiUsage(finalPrompt, finalThinking, finalText)
 	return map[string]any{
 		"candidates": []map[string]any{
 			{
@@ -170,14 +172,11 @@ func buildGeminiGenerateContentResponse(model, finalPrompt, finalThinking, final
 	}
 }
 
-func buildGeminiUsage(finalPrompt, finalThinking, finalText string, outputTokens int) map[string]any {
+//nolint:unused // retained for native Gemini non-stream handling path.
+func buildGeminiUsage(finalPrompt, finalThinking, finalText string) map[string]any {
 	promptTokens := util.EstimateTokens(finalPrompt)
 	reasoningTokens := util.EstimateTokens(finalThinking)
 	completionTokens := util.EstimateTokens(finalText)
-	if outputTokens > 0 {
-		completionTokens = outputTokens
-		reasoningTokens = 0
-	}
 	return map[string]any{
 		"promptTokenCount":     promptTokens,
 		"candidatesTokenCount": reasoningTokens + completionTokens,
@@ -185,10 +184,11 @@ func buildGeminiUsage(finalPrompt, finalThinking, finalText string, outputTokens
 	}
 }
 
+//nolint:unused // retained for native Gemini non-stream handling path.
 func buildGeminiPartsFromFinal(finalText, finalThinking string, toolNames []string) []map[string]any {
-	detected := util.ParseToolCalls(finalText, toolNames)
+	detected := toolcall.ParseToolCalls(finalText, toolNames)
 	if len(detected) == 0 && finalThinking != "" {
-		detected = util.ParseToolCalls(finalThinking, toolNames)
+		detected = toolcall.ParseToolCalls(finalThinking, toolNames)
 	}
 	if len(detected) > 0 {
 		parts := make([]map[string]any, 0, len(detected))

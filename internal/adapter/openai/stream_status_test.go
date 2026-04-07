@@ -238,3 +238,97 @@ func TestChatCompletionsStreamContentFilterStopsNormallyWithoutLeak(t *testing.T
 		t.Fatalf("expected finish_reason=stop for content-filter upstream stop, got %#v", choice["finish_reason"])
 	}
 }
+
+func TestResponsesStreamUsageIgnoresBatchAccumulatedTokenUsage(t *testing.T) {
+	statuses := make([]int, 0, 1)
+	h := &Handler{
+		Store: mockOpenAIConfig{wideInput: true},
+		Auth:  streamStatusAuthStub{},
+		DS: streamStatusDSStub{resp: makeOpenAISSEHTTPResponse(
+			`data: {"p":"response/content","v":"hello"}`,
+			`data: {"p":"response","o":"BATCH","v":[{"p":"accumulated_token_usage","v":190},{"p":"quasi_status","v":"FINISHED"}]}`,
+		)},
+	}
+	r := chi.NewRouter()
+	r.Use(captureStatusMiddleware(&statuses))
+	RegisterRoutes(r, h)
+
+	reqBody := `{"model":"deepseek-chat","input":"hi","stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer direct-token")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(statuses) != 1 || statuses[0] != http.StatusOK {
+		t.Fatalf("expected captured status 200, got %#v", statuses)
+	}
+	frames, done := parseSSEDataFrames(t, rec.Body.String())
+	if !done {
+		t.Fatalf("expected [DONE], body=%s", rec.Body.String())
+	}
+	if len(frames) == 0 {
+		t.Fatalf("expected at least one json frame, body=%s", rec.Body.String())
+	}
+	last := frames[len(frames)-1]
+	resp, _ := last["response"].(map[string]any)
+	if resp == nil {
+		t.Fatalf("expected response payload in final frame, got %#v", last)
+	}
+	usage, _ := resp["usage"].(map[string]any)
+	if usage == nil {
+		t.Fatalf("expected usage in response payload, got %#v", resp)
+	}
+	if got, _ := usage["output_tokens"].(float64); int(got) == 190 {
+		t.Fatalf("expected upstream accumulated token usage to be ignored, got %#v", usage["output_tokens"])
+	}
+}
+
+func TestResponsesNonStreamUsageIgnoresPromptAndOutputTokenUsage(t *testing.T) {
+	statuses := make([]int, 0, 1)
+	h := &Handler{
+		Store: mockOpenAIConfig{wideInput: true},
+		Auth:  streamStatusAuthStub{},
+		DS: streamStatusDSStub{resp: makeOpenAISSEHTTPResponse(
+			`data: {"p":"response/content","v":"ok"}`,
+			`data: {"p":"response","o":"BATCH","v":[{"p":"token_usage","v":{"prompt_tokens":11,"completion_tokens":29}},{"p":"quasi_status","v":"FINISHED"}]}`,
+		)},
+	}
+	r := chi.NewRouter()
+	r.Use(captureStatusMiddleware(&statuses))
+	RegisterRoutes(r, h)
+
+	reqBody := `{"model":"deepseek-chat","input":"hi","stream":false}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer direct-token")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(statuses) != 1 || statuses[0] != http.StatusOK {
+		t.Fatalf("expected captured status 200, got %#v", statuses)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode response failed: %v body=%s", err, rec.Body.String())
+	}
+	usage, _ := out["usage"].(map[string]any)
+	if usage == nil {
+		t.Fatalf("expected usage object, got %#v", out)
+	}
+	input, _ := usage["input_tokens"].(float64)
+	output, _ := usage["output_tokens"].(float64)
+	total, _ := usage["total_tokens"].(float64)
+	if int(output) == 29 {
+		t.Fatalf("expected upstream completion token usage to be ignored, got %#v", usage["output_tokens"])
+	}
+	if int(total) != int(input)+int(output) {
+		t.Fatalf("expected total_tokens=input_tokens+output_tokens, usage=%#v", usage)
+	}
+}

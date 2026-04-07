@@ -248,7 +248,7 @@ test('parseChunkForContent strips reference markers from fragment content', () =
   assert.deepEqual(parsed.parts, [{ text: '广州天气  多云', type: 'text' }]);
 });
 
-test('parseChunkForContent detects content_filter status and carries output tokens', () => {
+test('parseChunkForContent detects content_filter status and ignores upstream output tokens', () => {
   const chunk = {
     p: 'response',
     v: [
@@ -260,7 +260,7 @@ test('parseChunkForContent detects content_filter status and carries output toke
   assert.equal(parsed.parsed, true);
   assert.equal(parsed.finished, true);
   assert.equal(parsed.contentFilter, true);
-  assert.equal(parsed.outputTokens, 77);
+  assert.equal(parsed.outputTokens, 0);
   assert.deepEqual(parsed.parts, []);
 });
 
@@ -279,7 +279,7 @@ test('parseChunkForContent keeps error branches distinct from content_filter sta
   assert.deepEqual(parsed.parts, []);
 });
 
-test('parseChunkForContent preserves output tokens on FINISHED lines', () => {
+test('parseChunkForContent ignores output tokens on FINISHED lines', () => {
   const parsed = parseChunkForContent(
     { p: 'response/status', v: 'FINISHED', accumulated_token_usage: 190 },
     false,
@@ -288,7 +288,27 @@ test('parseChunkForContent preserves output tokens on FINISHED lines', () => {
   assert.equal(parsed.parsed, true);
   assert.equal(parsed.finished, true);
   assert.equal(parsed.contentFilter, false);
-  assert.equal(parsed.outputTokens, 190);
+  assert.equal(parsed.outputTokens, 0);
+  assert.deepEqual(parsed.parts, []);
+});
+
+test('parseChunkForContent ignores output tokens from response BATCH status snapshots', () => {
+  const parsed = parseChunkForContent(
+    {
+      p: 'response',
+      o: 'BATCH',
+      v: [
+        { p: 'accumulated_token_usage', v: 190 },
+        { p: 'quasi_status', v: 'FINISHED' },
+      ],
+    },
+    false,
+    'text',
+  );
+  assert.equal(parsed.parsed, true);
+  assert.equal(parsed.finished, false);
+  assert.equal(parsed.contentFilter, false);
+  assert.equal(parsed.outputTokens, 0);
   assert.deepEqual(parsed.parts, []);
 });
 
@@ -301,7 +321,7 @@ test('parseChunkForContent matches FINISHED case-insensitively on status paths',
   assert.equal(parsed.parsed, true);
   assert.equal(parsed.finished, true);
   assert.equal(parsed.contentFilter, false);
-  assert.equal(parsed.outputTokens, 190);
+  assert.equal(parsed.outputTokens, 0);
   assert.deepEqual(parsed.parts, []);
 });
 
@@ -314,7 +334,7 @@ test('parseChunkForContent filters INCOMPLETE status text without stopping strea
   assert.equal(parsed.parsed, true);
   assert.equal(parsed.finished, false);
   assert.equal(parsed.contentFilter, false);
-  assert.equal(parsed.outputTokens, 190);
+  assert.equal(parsed.outputTokens, 0);
   assert.deepEqual(parsed.parts, []);
 });
 

@@ -4,6 +4,8 @@
 
 本指南基于当前 Go 代码库，详细说明各种部署方式。
 
+本页导航：[文档总索引](./README.md)｜[架构说明](./ARCHITECTURE.md)｜[接口文档](../API.md)｜[测试指南](./TESTING.md)
+
 ---
 
 ## 目录
@@ -366,7 +368,6 @@ No Output Directory named "public" found after the Build completed.
 
 - `ds2api` 可执行文件（Windows 为 `ds2api.exe`）
 - `static/admin/`（WebUI 构建产物）
-- `sha3_wasm_bg.7b9ca65ddd.wasm`（可选；程序内置 embed fallback）
 - `config.example.json`、`.env.example`
 - `README.MD`、`README.en.md`、`LICENSE`
 
@@ -456,8 +457,6 @@ server {
 # 将编译好的二进制文件和相关文件复制到目标目录
 sudo mkdir -p /opt/ds2api
 sudo cp ds2api config.json /opt/ds2api/
-# 可选：若你希望使用外置 WASM 文件（覆盖内置版本，来自 release 包或构建产物）
-# sudo cp /path/to/sha3_wasm_bg.7b9ca65ddd.wasm /opt/ds2api/
 sudo cp -r static/admin /opt/ds2api/static/admin
 ```
 

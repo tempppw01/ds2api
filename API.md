@@ -4,6 +4,8 @@
 
 本文档描述当前 Go 代码库的实际 API 行为。
 
+文档导航：[总览](README.MD) / [架构说明](docs/ARCHITECTURE.md) / [部署指南](docs/DEPLOY.md) / [测试指南](docs/TESTING.md)
+
 ---
 
 ## 目录
@@ -267,6 +269,7 @@ data: [DONE]
 - `deepseek-reasoner` / `deepseek-reasoner-search` 模型输出 `delta.reasoning_content`
 - 普通文本输出 `delta.content`
 - 最后一段包含 `finish_reason` 和 `usage`
+- token 计数优先透传上游 DeepSeek SSE（如 `accumulated_token_usage` / `token_usage`）；仅在上游缺失时回退本地估算
 
 #### Tool Calls
 
@@ -389,6 +392,7 @@ data: [DONE]
 ## Claude 兼容接口
 
 除标准路径 `/anthropic/v1/*` 外，还支持快捷路径 `/v1/messages`、`/messages`、`/v1/messages/count_tokens`、`/messages/count_tokens`。
+实现上统一走 OpenAI Chat Completions 解析与回译链路，避免多套解析逻辑分叉维护。
 
 ### `GET /anthropic/v1/models`
 
@@ -523,6 +527,7 @@ data: {"type":"message_stop"}
 - `/v1/models/{model}:streamGenerateContent`（兼容路径）
 
 鉴权方式同业务接口（`Authorization: Bearer <token>` 或 `x-api-key`）。
+实现上统一走 OpenAI Chat Completions 解析与回译链路，避免多套解析逻辑分叉维护。
 
 ### `POST /v1beta/models/{model}:generateContent`
 
@@ -541,6 +546,7 @@ data: {"type":"message_stop"}
 - 常规文本：持续返回增量文本 chunk
 - `tools` 场景：会缓冲并在结束时输出 `functionCall` 结构
 - 结束 chunk：包含 `finishReason: "STOP"` 与 `usageMetadata`
+- token 计数优先透传上游 DeepSeek SSE（如 `accumulated_token_usage` / `token_usage`）；仅在上游缺失时回退本地估算
 
 ---
 

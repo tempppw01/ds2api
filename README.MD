@@ -16,6 +16,8 @@
 
 将 DeepSeek Web 对话能力转换为 OpenAI、Claude 与 Gemini 兼容 API。后端为 **Go 全量实现**，前端为 React WebUI 管理台（源码在 `webui/`，部署时自动构建到 `static/admin`）。
 
+文档入口：[文档导航](docs/README.md) / [架构说明](docs/ARCHITECTURE.md) / [接口文档](API.md)
+
 > **重要免责声明**
 >
 > 本仓库仅供学习、研究、个人实验和内部验证使用，不提供任何形式的商业授权、适用性保证或结果保证。
@@ -24,7 +26,7 @@
 >
 > 请勿将本项目用于违反服务条款、协议、法律法规或平台规则的场景。商业使用前请自行确认 `LICENSE`、相关协议以及你是否获得了作者的书面许可。
 
-## 架构概览
+## 架构概览（摘要）
 
 ```mermaid
 flowchart LR
@@ -48,7 +50,7 @@ flowchart LR
             Auth["Auth Resolver\n(API key / bearer / x-goog-api-key)"]
             Pool["Account Pool + Queue\n(并发槽位 + 等待队列)"]
             DSClient["DeepSeek Client\n(Session / Auth / HTTP)"]
-            Pow["PoW WASM\n(wazero 预加载)"]
+            Pow["PoW 实现\n(纯 Go 毫秒级)"]
             Tool["Tool Sieve\n(Go/Node 语义对齐)"]
         end
     end
@@ -72,6 +74,8 @@ flowchart LR
     Bridge --> Client
 ```
 
+详细架构拆分与目录职责见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
 - **后端**：Go（`cmd/ds2api/`、`api/`、`internal/`），不依赖 Python 运行时
 - **前端**：React 管理台（`webui/`），运行时托管静态构建产物
 - **部署**：本地运行、Docker、Vercel Serverless、Linux systemd
@@ -81,7 +85,7 @@ flowchart LR
 - **统一路由内核**：所有协议入口统一汇聚到 `internal/server/router.go`，并在同一路由树中注册 OpenAI / Claude / Gemini / Admin / WebUI 路由，避免多入口行为漂移。
 - **统一执行链路**：Claude / Gemini 入口先经 `internal/translatorcliproxy` 做协议转换，再进入 `openai.ChatCompletions` 统一处理工具调用与流式语义，最后再转换回原协议响应。
 - **适配器分层更清晰**：`internal/adapter/{claude,gemini}` 负责入口/出口协议封装，`internal/adapter/openai` 负责核心执行，DeepSeek 侧调用只保留在 OpenAI 内核中。
-- **Tool Calling 双运行时对齐**：Go 侧（`internal/util`）与 Vercel Node 侧（`internal/js/helpers/stream-tool-sieve`）保持一致的解析/防泄漏语义，覆盖 JSON / XML / invoke / text-kv 多风格输入。
+- **Tool Calling 双运行时对齐**：Go 侧（`internal/toolcall`）与 Vercel Node 侧（`internal/js/helpers/stream-tool-sieve`）保持一致的解析/防泄漏语义，覆盖 JSON / XML / invoke / text-kv 多风格输入。
 - **配置与运行时设置解耦**：静态配置（`config`）与运行时策略（`settings`）通过 Admin API 分离管理，支持热更新和密码轮换失效旧 JWT。
 - **流式能力升级**：`/v1/responses` 与 `/v1/chat/completions` 共享更一致的工具调用增量输出策略，降低不同 SDK 下的行为差异。
 - **可观测与可运维增强**：`/healthz`、`/readyz`、`/admin/version`、`/admin/dev/captures` 形成排障闭环，便于发布后验证。
@@ -95,7 +99,7 @@ flowchart LR
 | Gemini 兼容 | `POST /v1beta/models/{model}:generateContent`、`POST /v1beta/models/{model}:streamGenerateContent`（及 `/v1/models/{model}:*` 路径） |
 | 多账号轮询 | 自动 token 刷新、邮箱/手机号双登录方式 |
 | 并发队列控制 | 每账号 in-flight 上限 + 等待队列，动态计算建议并发值 |
-| DeepSeek PoW | WASM 计算（`wazero`），无需外部 Node.js 依赖 |
+| DeepSeek PoW | 纯 Go 高性能实现（DeepSeekHashV1），毫秒级响应 |
 | Tool Calling | 防泄漏处理：非代码块高置信特征识别、`delta.tool_calls` 早发、结构化增量输出 |
 | Admin API | 配置管理、运行时设置热更新、账号测试 / 批量测试、会话清理、导入导出、Vercel 同步、版本检查 |
 | WebUI 管理台 | `/admin` 单页应用（中英文双语、深色模式） |
@@ -344,7 +348,6 @@ cp opencode.json.example opencode.json
 | `DS2API_CONFIG_PATH` | 配置文件路径 | `config.json` |
 | `DS2API_CONFIG_JSON` | 直接注入配置（JSON 或 Base64） | — |
 | `DS2API_ENV_WRITEBACK` | 环境变量模式下自动写回配置文件并切换文件模式（`1/true/yes/on`） | 关闭 |
-| `DS2API_WASM_PATH` | PoW WASM 文件路径 | 自动查找 |
 | `DS2API_STATIC_ADMIN_DIR` | 管理台静态文件目录 | `static/admin` |
 | `DS2API_AUTO_BUILD_WEBUI` | 启动时自动构建 WebUI | 本地开启，Vercel 关闭 |
 | `DS2API_DEV_PACKET_CAPTURE` | 本地开发抓包开关（记录最近会话请求/响应体） | 本地非 Vercel 默认开启 |
@@ -432,71 +435,6 @@ go run ./cmd/ds2api
 {"query":"广州天气","sample_id":"gz-weather-from-memory"}
 ```
 
-## 项目结构
-
-```text
-ds2api/
-├── app/                     # 统一 HTTP Handler 组装层（供本地与 Serverless 复用）
-├── cmd/
-│   ├── ds2api/              # 本地 / 容器启动入口
-│   └── ds2api-tests/        # 端到端测试集入口
-├── api/
-│   ├── index.go             # Vercel Serverless Go 入口
-│   ├── chat-stream.js       # Vercel Node.js 流式转发
-│   └── (rewrite targets in vercel.json)
-├── internal/
-│   ├── account/             # 账号池与并发队列
-│   ├── adapter/
-│   │   ├── openai/          # OpenAI 兼容适配器（含 Tool Call 解析、Vercel 流式 prepare/release）
-│   │   ├── claude/          # Claude 兼容适配器
-│   │   └── gemini/          # Gemini 兼容适配器（generateContent / streamGenerateContent）
-│   ├── admin/               # Admin API handlers（含 Settings 热更新）
-│   ├── auth/                # 鉴权与 JWT
-│   ├── claudeconv/          # Claude 消息格式转换
-│   ├── compat/              # Go 版本兼容与回归测试辅助
-│   ├── config/              # 配置加载、校验与热更新
-│   ├── deepseek/            # DeepSeek API 客户端、PoW WASM
-│   ├── js/                  # Node 运行时流式处理与兼容逻辑
-│   ├── devcapture/          # 开发抓包模块
-│   ├── rawsample/           # 原始流样本可见文本提取与回放辅助
-│   ├── format/              # 输出格式化
-│   ├── prompt/              # Prompt 构建
-│   ├── server/              # HTTP 路由与中间件（chi router）
-│   ├── sse/                 # SSE 解析工具
-│   ├── stream/              # 统一流式消费引擎
-│   ├── testsuite/           # 端到端测试框架与用例编排
-│   ├── translatorcliproxy/  # CLIProxy 桥接与流写入组件
-│   ├── util/                # 通用工具函数
-│   ├── version/             # 版本解析 / 比较与 tag 规范化
-│   └── webui/               # WebUI 静态文件托管与自动构建
-├── webui/                   # React WebUI 源码（Vite + Tailwind）
-│   └── src/
-│       ├── app/             # 路由、鉴权、配置状态管理
-│       ├── features/        # 业务功能模块（account/settings/vercel/apiTester）
-│       ├── components/      # 登录/落地页等通用组件
-│       └── locales/         # 中英文语言包（zh.json / en.json）
-├── scripts/
-│   └── build-webui.sh       # WebUI 手动构建脚本
-├── tests/
-│   ├── compat/              # 兼容性测试夹具与期望输出
-│   ├── node/                # Node 侧单元测试（chat-stream / tool-sieve）
-│   ├── raw_stream_samples/  # 原始 SSE 样本与回放元数据
-│   └── scripts/             # 统一测试脚本入口（unit/e2e）
-├── docs/                    # 部署 / 贡献 / 测试等辅助文档
-├── static/admin/            # WebUI 构建产物（不提交到 Git）
-├── .github/
-│   ├── workflows/           # GitHub Actions（质量门禁 + Release 自动构建）
-│   ├── ISSUE_TEMPLATE/      # Issue 模板
-│   └── PULL_REQUEST_TEMPLATE.md
-├── config.example.json      # 配置文件示例
-├── .env.example             # 环境变量示例
-├── Dockerfile               # 多阶段构建（WebUI + Go）
-├── docker-compose.yml       # 生产环境 Docker Compose
-├── docker-compose.dev.yml   # 开发环境 Docker Compose
-├── vercel.json              # Vercel 路由与构建配置
-└── go.mod / go.sum          # Go 模块依赖
-```
-
 ## 文档索引
 
 | 文档 | 说明 |
@@ -543,7 +481,7 @@ npm ci --prefix webui && npm run build --prefix webui
 go test ./...
 
 # 运行 tool calls 相关测试（调试工具调用问题）
-go test -v -run 'TestParseToolCalls|TestRepair' ./internal/util/
+go test -v -run 'TestParseToolCalls|TestRepair' ./internal/toolcall/
 
 # 运行端到端测试
 ./tests/scripts/run-live.sh

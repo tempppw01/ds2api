@@ -1,4 +1,4 @@
-package util
+package toolcall
 
 import (
 	"strings"
@@ -689,5 +689,29 @@ func TestRepairLooseJSONWithNestedObjects(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("[%s] RepairLooseJSON with nested objects:\n  input:    %s\n  got:      %s\n  expected: %s", tt.name, tt.input, got, tt.expected)
 		}
+	}
+}
+
+func TestParseToolCallsUnescapesHTMLEntityArguments(t *testing.T) {
+	text := `<tool_call><tool_name>Bash</tool_name><parameters>{"command":"echo a &gt; out.txt"}</parameters></tool_call>`
+	calls := ParseToolCalls(text, []string{"bash"})
+	if len(calls) != 1 {
+		t.Fatalf("expected one call, got %#v", calls)
+	}
+	cmd, _ := calls[0].Input["command"].(string)
+	if cmd != "echo a > out.txt" {
+		t.Fatalf("expected html entities to be unescaped in command, got %q", cmd)
+	}
+}
+
+func TestParseToolCallsJSONPayloadKeepsLiteralEntities(t *testing.T) {
+	text := `{"tool_calls":[{"name":"bash","input":{"command":"echo &gt; literally"}}]}`
+	calls := ParseToolCalls(text, []string{"bash"})
+	if len(calls) != 1 {
+		t.Fatalf("expected one call, got %#v", calls)
+	}
+	cmd, _ := calls[0].Input["command"].(string)
+	if cmd != "echo &gt; literally" {
+		t.Fatalf("expected json payload to keep literal entities, got %q", cmd)
 	}
 }

@@ -16,6 +16,8 @@ Language: [中文](README.MD) | [English](README.en.md)
 
 DS2API converts DeepSeek Web chat capability into OpenAI-compatible, Claude-compatible, and Gemini-compatible APIs. The backend is a **pure Go implementation**, with a React WebUI admin panel (source in `webui/`, build output auto-generated to `static/admin` during deployment).
 
+Documentation entry: [Docs Index](docs/README.md) / [Architecture](docs/ARCHITECTURE.en.md) / [API Reference](API.en.md)
+
 > **Important Disclaimer**
 >
 > This repository is provided for learning, research, personal experimentation, and internal validation only. It does not grant any commercial authorization and comes with no warranty of fitness, stability, or results.
@@ -24,7 +26,7 @@ DS2API converts DeepSeek Web chat capability into OpenAI-compatible, Claude-comp
 >
 > Do not use this project in ways that violate service terms, agreements, laws, or platform rules. Before any commercial use, review the `LICENSE`, the relevant terms, and confirm that you have the author's written permission.
 
-## Architecture Overview
+## Architecture Overview (Summary)
 
 ```mermaid
 flowchart LR
@@ -48,7 +50,7 @@ flowchart LR
             Auth["Auth Resolver\n(API key / bearer / x-goog-api-key)"]
             Pool["Account Pool + Queue\n(in-flight slots + wait queue)"]
             DSClient["DeepSeek Client\n(session / auth / HTTP)"]
-            Pow["PoW WASM\n(wazero preload)"]
+            Pow["PoW Solver\n(Pure Go ms-level)"]
             Tool["Tool Sieve\n(Go/Node semantic parity)"]
         end
     end
@@ -72,6 +74,8 @@ flowchart LR
     Bridge --> Client
 ```
 
+For the full module-by-module architecture and directory responsibilities, see [docs/ARCHITECTURE.en.md](docs/ARCHITECTURE.en.md).
+
 - **Backend**: Go (`cmd/ds2api/`, `api/`, `internal/`), no Python runtime
 - **Frontend**: React admin panel (`webui/`), served as static build at runtime
 - **Deployment**: local run, Docker, Vercel serverless, Linux systemd
@@ -81,7 +85,7 @@ flowchart LR
 - **Unified routing core**: all protocol entries are now centralized through `internal/server/router.go`, with OpenAI / Claude / Gemini / Admin / WebUI routes registered in one tree to avoid multi-entry drift.
 - **Unified execution chain**: Claude/Gemini entries are translated by `internal/translatorcliproxy`, then executed through `openai.ChatCompletions` for shared tool-calling and stream semantics, then translated back to the client protocol.
 - **Cleaner adapter boundaries**: `internal/adapter/{claude,gemini}` handles protocol wrappers, while `internal/adapter/openai` remains the execution core; upstream DeepSeek calls are retained only in the OpenAI core.
-- **Tool-calling parity across runtimes**: Go (`internal/util`) and Vercel Node (`internal/js/helpers/stream-tool-sieve`) follow aligned parsing/anti-leak semantics across JSON / XML / invoke / text-kv inputs.
+- **Tool-calling parity across runtimes**: Go (`internal/toolcall`) and Vercel Node (`internal/js/helpers/stream-tool-sieve`) follow aligned parsing/anti-leak semantics across JSON / XML / invoke / text-kv inputs.
 - **Config/runtime separation**: static config (`config`) and runtime policy (`settings`) are managed independently via Admin APIs, enabling hot updates and password rotation with JWT invalidation.
 - **Streaming behavior upgrade**: `/v1/responses` and `/v1/chat/completions` now share a more consistent incremental tool-call emission strategy across SDK ecosystems.
 - **Improved operability**: `/healthz`, `/readyz`, `/admin/version`, and `/admin/dev/captures` form a tighter post-deploy diagnostics loop.
@@ -95,7 +99,7 @@ flowchart LR
 | Gemini compatible | `POST /v1beta/models/{model}:generateContent`, `POST /v1beta/models/{model}:streamGenerateContent` (plus `/v1/models/{model}:*` paths) |
 | Multi-account rotation | Auto token refresh, email/mobile dual login |
 | Concurrency control | Per-account in-flight limit + waiting queue, dynamic recommended concurrency |
-| DeepSeek PoW | WASM solving via `wazero`, no external Node.js dependency |
+| DeepSeek PoW | Pure Go high-performance solver (DeepSeekHashV1), ms-level response |
 | Tool Calling | Anti-leak handling: non-code-block feature match, early `delta.tool_calls`, structured incremental output |
 | Admin API | Config management, runtime settings hot-reload, account testing/batch test, session cleanup, import/export, Vercel sync, version check |
 | WebUI Admin Panel | SPA at `/admin` (bilingual Chinese/English, dark mode) |
@@ -344,7 +348,6 @@ cp opencode.json.example opencode.json
 | `DS2API_CONFIG_PATH` | Config file path | `config.json` |
 | `DS2API_CONFIG_JSON` | Inline config (JSON or Base64) | — |
 | `DS2API_ENV_WRITEBACK` | Auto-write env-backed config to file and transition to file mode (`1/true/yes/on`) | Disabled |
-| `DS2API_WASM_PATH` | PoW WASM file path | Auto-detect |
 | `DS2API_STATIC_ADMIN_DIR` | Admin static assets dir | `static/admin` |
 | `DS2API_AUTO_BUILD_WEBUI` | Auto-build WebUI on startup | Enabled locally, disabled on Vercel |
 | `DS2API_ACCOUNT_MAX_INFLIGHT` | Max in-flight requests per account | `2` |
@@ -428,71 +431,6 @@ The save endpoint can target a chain by `query`, `chain_key`, or `capture_id`. E
 
 ```json
 {"query":"Guangzhou weather","sample_id":"gz-weather-from-memory"}
-```
-
-## Project Structure
-
-```text
-ds2api/
-├── app/                     # Unified HTTP handler assembly (shared by local + serverless)
-├── cmd/
-│   ├── ds2api/              # Local / container entrypoint
-│   └── ds2api-tests/        # End-to-end testsuite entrypoint
-├── api/
-│   ├── index.go             # Vercel Serverless Go entry
-│   ├── chat-stream.js       # Vercel Node.js stream relay
-│   └── (rewrite targets in vercel.json)
-├── internal/
-│   ├── account/             # Account pool and concurrency queue
-│   ├── adapter/
-│   │   ├── openai/          # OpenAI adapter (incl. tool call parsing, Vercel stream prepare/release)
-│   │   ├── claude/          # Claude adapter
-│   │   └── gemini/          # Gemini adapter (generateContent / streamGenerateContent)
-│   ├── admin/               # Admin API handlers (incl. Settings hot-reload)
-│   ├── auth/                # Auth and JWT
-│   ├── claudeconv/          # Claude message format conversion
-│   ├── compat/              # Go-version compatibility and regression helpers
-│   ├── config/              # Config loading, validation, and hot-reload
-│   ├── deepseek/            # DeepSeek API client, PoW WASM
-│   ├── js/                  # Node runtime stream/compat logic
-│   ├── devcapture/          # Dev packet capture module
-│   ├── rawsample/           # Visible-text extraction and replay helpers for raw stream samples
-│   ├── format/              # Output formatting
-│   ├── prompt/              # Prompt construction
-│   ├── server/              # HTTP routing and middleware (chi router)
-│   ├── sse/                 # SSE parsing utilities
-│   ├── stream/              # Unified stream consumption engine
-│   ├── testsuite/           # End-to-end testsuite framework and case orchestration
-│   ├── translatorcliproxy/  # CLIProxy bridge and stream writer components
-│   ├── util/                # Common utilities
-│   ├── version/             # Version parsing/comparison and tag normalization
-│   └── webui/               # WebUI static file serving and auto-build
-├── webui/                   # React WebUI source (Vite + Tailwind)
-│   └── src/
-│       ├── app/             # Routing, auth, config state
-│       ├── features/        # Feature modules (account/settings/vercel/apiTester)
-│       ├── components/      # Shared UI pieces (login/landing, etc.)
-│       └── locales/         # Language packs (zh.json / en.json)
-├── scripts/
-│   └── build-webui.sh       # Manual WebUI build script
-├── tests/
-│   ├── compat/              # Compatibility fixtures and expected outputs
-│   ├── node/                # Node-side unit tests (chat-stream / tool-sieve)
-│   ├── raw_stream_samples/  # Raw SSE samples and replay metadata
-│   └── scripts/             # Unified test script entrypoints (unit/e2e)
-├── docs/                    # Deployment / contributing / testing docs
-├── static/admin/            # WebUI build output (not committed to Git)
-├── .github/
-│   ├── workflows/           # GitHub Actions (quality gates + release automation)
-│   ├── ISSUE_TEMPLATE/      # Issue templates
-│   └── PULL_REQUEST_TEMPLATE.md
-├── config.example.json      # Config file template
-├── .env.example             # Environment variable template
-├── Dockerfile               # Multi-stage build (WebUI + Go)
-├── docker-compose.yml       # Production Docker Compose
-├── docker-compose.dev.yml   # Development Docker Compose
-├── vercel.json              # Vercel routing and build config
-└── go.mod / go.sum          # Go module dependencies
 ```
 
 ## Documentation Index

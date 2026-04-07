@@ -1,6 +1,7 @@
 package compat
 
 import (
+	"ds2api/internal/toolcall"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -36,7 +37,6 @@ func TestGoCompatSSEFixtures(t *testing.T) {
 			Finished      bool             `json:"finished"`
 			NewType       string           `json:"new_type"`
 			ContentFilter bool             `json:"content_filter"`
-			OutputTokens  int              `json:"output_tokens"`
 			ErrorMessage  string           `json:"error_message"`
 		}
 		mustLoadJSON(t, expectedPath, &expected)
@@ -57,11 +57,10 @@ func TestGoCompatSSEFixtures(t *testing.T) {
 			res.Stop != expected.Finished ||
 			res.NextType != expected.NewType ||
 			res.ContentFilter != expected.ContentFilter ||
-			res.OutputTokens != expected.OutputTokens ||
 			res.ErrorMessage != expected.ErrorMessage {
-			t.Fatalf("fixture %s mismatch:\n got parts=%#v finished=%v newType=%q contentFilter=%v outputTokens=%d errorMessage=%q\nwant parts=%#v finished=%v newType=%q contentFilter=%v outputTokens=%d errorMessage=%q",
-				name, gotParts, res.Stop, res.NextType, res.ContentFilter, res.OutputTokens, res.ErrorMessage,
-				expected.Parts, expected.Finished, expected.NewType, expected.ContentFilter, expected.OutputTokens, expected.ErrorMessage)
+			t.Fatalf("fixture %s mismatch:\n got parts=%#v finished=%v newType=%q contentFilter=%v errorMessage=%q\nwant parts=%#v finished=%v newType=%q contentFilter=%v errorMessage=%q",
+				name, gotParts, res.Stop, res.NextType, res.ContentFilter, res.ErrorMessage,
+				expected.Parts, expected.Finished, expected.NewType, expected.ContentFilter, expected.ErrorMessage)
 		}
 	}
 }
@@ -86,22 +85,22 @@ func TestGoCompatToolcallFixtures(t *testing.T) {
 		mustLoadJSON(t, fixturePath, &fixture)
 
 		var expected struct {
-			Calls             []util.ParsedToolCall `json:"calls"`
-			SawToolCallSyntax bool                  `json:"sawToolCallSyntax"`
-			RejectedByPolicy  bool                  `json:"rejectedByPolicy"`
-			RejectedToolNames []string              `json:"rejectedToolNames"`
+			Calls             []toolcall.ParsedToolCall `json:"calls"`
+			SawToolCallSyntax bool                      `json:"sawToolCallSyntax"`
+			RejectedByPolicy  bool                      `json:"rejectedByPolicy"`
+			RejectedToolNames []string                  `json:"rejectedToolNames"`
 		}
 		mustLoadJSON(t, expectedPath, &expected)
 
-		var got util.ToolCallParseResult
+		var got toolcall.ToolCallParseResult
 		switch strings.ToLower(strings.TrimSpace(fixture.Mode)) {
 		case "standalone":
-			got = util.ParseStandaloneToolCallsDetailed(fixture.Text, fixture.ToolNames)
+			got = toolcall.ParseStandaloneToolCallsDetailed(fixture.Text, fixture.ToolNames)
 		default:
-			got = util.ParseToolCallsDetailed(fixture.Text, fixture.ToolNames)
+			got = toolcall.ParseToolCallsDetailed(fixture.Text, fixture.ToolNames)
 		}
 		if got.Calls == nil {
-			got.Calls = []util.ParsedToolCall{}
+			got.Calls = []toolcall.ParsedToolCall{}
 		}
 		if got.RejectedToolNames == nil {
 			got.RejectedToolNames = []string{}

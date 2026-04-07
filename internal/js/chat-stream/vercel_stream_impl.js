@@ -125,7 +125,6 @@ async function handleVercelStream(req, res, rawBody, payload) {
     let currentType = thinkingEnabled ? 'thinking' : 'text';
     let thinkingText = '';
     let outputText = '';
-    let outputTokens = 0;
     const toolSieveEnabled = toolPolicy.toolSieveEnabled;
     const toolSieveState = createToolSieveState();
     let toolCallsEmitted = false;
@@ -178,7 +177,7 @@ async function handleVercelStream(req, res, rawBody, payload) {
         created,
         model,
         choices: [{ delta: {}, index: 0, finish_reason: reason }],
-        usage: buildUsage(finalPrompt, thinkingText, outputText, outputTokens),
+        usage: buildUsage(finalPrompt, thinkingText, outputText),
       });
       if (!res.writableEnded && !res.destroyed) {
         res.write('data: [DONE]\n\n');
@@ -226,9 +225,6 @@ async function handleVercelStream(req, res, rawBody, payload) {
           const parsed = parseChunkForContent(chunk, thinkingEnabled, currentType, stripReferenceMarkers);
           if (!parsed.parsed) {
             continue;
-          }
-          if (parsed.outputTokens > 0) {
-            outputTokens = parsed.outputTokens;
           }
           currentType = parsed.newType;
           if (parsed.errorMessage) {
