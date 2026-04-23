@@ -53,7 +53,6 @@ RUN set -eux; \
     test -n "${PKG_DIR}"; \
     mkdir -p /out/static; \
     cp "${PKG_DIR}/ds2api" /out/ds2api; \
-
     cp "${PKG_DIR}/config.example.json" /out/config.example.json; \
     cp -R "${PKG_DIR}/static/admin" /out/static/admin
 
