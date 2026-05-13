@@ -60,6 +60,15 @@ func (h *Handler) PreprocessInlineFileInputs(ctx context.Context, a *auth.Reques
 	if h == nil || h.DS == nil || len(req) == 0 {
 		return nil
 	}
+	if !config.UpstreamFileUploadsEnabledFrom(h.Store) {
+		for _, key := range []string{"messages", "input", "attachments"} {
+			if raw, ok := req[key]; ok && containsInlineUploadPayload(raw) {
+				err := fmt.Errorf("inline file uploads are disabled in direct-conversation mode")
+				return &inlineFileUploadError{status: http.StatusBadRequest, message: err.Error(), err: err}
+			}
+		}
+		return nil
+	}
 	modelType := "default"
 	if requestedModel, ok := req["model"].(string); ok {
 		if resolvedModel, ok := config.ResolveModel(h.Store, requestedModel); ok {
@@ -399,4 +408,25 @@ func stringsToAnySlice(items []string) []any {
 		return nil
 	}
 	return out
+}
+
+func containsInlineUploadPayload(raw any) bool {
+	switch x := raw.(type) {
+	case []any:
+		for _, item := range x {
+			if containsInlineUploadPayload(item) {
+				return true
+			}
+		}
+	case map[string]any:
+		if _, matched, _ := decodeOpenAIInlineFileBlock(x); matched {
+			return true
+		}
+		for _, key := range []string{"messages", "input", "attachments", "content", "files", "items", "data", "source", "file", "image_url"} {
+			if nested, ok := x[key]; ok && containsInlineUploadPayload(nested) {
+				return true
+			}
+		}
+	}
+	return false
 }

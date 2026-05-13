@@ -76,7 +76,7 @@ func (m *inlineUploadDSStub) DeleteAllSessionsForToken(_ context.Context, _ stri
 
 func TestPreprocessInlineFileInputsReplacesDataURLAndCollectsRefFileIDs(t *testing.T) {
 	ds := &inlineUploadDSStub{}
-	h := &openAITestSurface{DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, DS: ds}
 	req := map[string]any{
 		"messages": []any{
 			map[string]any{
@@ -129,7 +129,7 @@ func TestPreprocessInlineFileInputsReplacesDataURLAndCollectsRefFileIDs(t *testi
 
 func TestPreprocessInlineFileInputsDeduplicatesIdenticalPayloads(t *testing.T) {
 	ds := &inlineUploadDSStub{}
-	h := &openAITestSurface{DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, DS: ds}
 	req := map[string]any{
 		"messages": []any{
 			map[string]any{
@@ -154,9 +154,35 @@ func TestPreprocessInlineFileInputsDeduplicatesIdenticalPayloads(t *testing.T) {
 	}
 }
 
+func TestPreprocessInlineFileInputsRejectsUploadsInDirectConversationMode(t *testing.T) {
+	ds := &inlineUploadDSStub{}
+	h := &openAITestSurface{Store: mockOpenAIConfig{}, DS: ds}
+	req := map[string]any{
+		"messages": []any{
+			map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{
+						"type":      "image_url",
+						"image_url": map[string]any{"url": "data:image/png;base64,QUJDRA=="},
+					},
+				},
+			},
+		},
+	}
+
+	err := h.preprocessInlineFileInputs(context.Background(), &auth.RequestAuth{DeepSeekToken: "token"}, req)
+	if err == nil {
+		t.Fatal("expected direct-conversation mode to reject inline uploads")
+	}
+	if len(ds.uploadCalls) != 0 {
+		t.Fatalf("expected no upload calls, got %d", len(ds.uploadCalls))
+	}
+}
+
 func TestChatCompletionsUploadsInlineFilesBeforeCompletion(t *testing.T) {
 	ds := &inlineUploadDSStub{}
-	h := &openAITestSurface{Store: mockOpenAIConfig{}, Auth: streamStatusAuthStub{}, DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, Auth: streamStatusAuthStub{}, DS: ds}
 	reqBody := `{"model":"deepseek-v4-vision","messages":[{"role":"user","content":[{"type":"input_text","text":"hi"},{"type":"image_url","image_url":{"url":"data:image/png;base64,QUJDRA=="}}]}],"stream":false}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
@@ -185,7 +211,7 @@ func TestChatCompletionsUploadsInlineFilesBeforeCompletion(t *testing.T) {
 
 func TestResponsesUploadsInlineFilesBeforeCompletion(t *testing.T) {
 	ds := &inlineUploadDSStub{}
-	h := &openAITestSurface{Store: mockOpenAIConfig{}, Auth: streamStatusAuthStub{}, DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, Auth: streamStatusAuthStub{}, DS: ds}
 	r := chi.NewRouter()
 	registerOpenAITestRoutes(r, h)
 	reqBody := `{"model":"deepseek-v4-pro","input":[{"role":"user","content":[{"type":"input_text","text":"hi"},{"type":"input_image","image_url":{"url":"data:image/png;base64,QUJDRA=="}}]}],"stream":false}`
@@ -213,7 +239,7 @@ func TestResponsesUploadsInlineFilesBeforeCompletion(t *testing.T) {
 
 func TestChatCompletionsInlineUploadFailureReturnsBadRequest(t *testing.T) {
 	ds := &inlineUploadDSStub{}
-	h := &openAITestSurface{Store: mockOpenAIConfig{}, Auth: streamStatusAuthStub{}, DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, Auth: streamStatusAuthStub{}, DS: ds}
 	reqBody := `{"model":"deepseek-v4-flash","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,%%%"}}]}],"stream":false}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(reqBody))
 	req.Header.Set("Authorization", "Bearer direct-token")
@@ -232,7 +258,7 @@ func TestChatCompletionsInlineUploadFailureReturnsBadRequest(t *testing.T) {
 
 func TestChatCompletionsInlineUploadLimitReturnsBadRequest(t *testing.T) {
 	ds := &inlineUploadDSStub{}
-	h := &openAITestSurface{Store: mockOpenAIConfig{}, Auth: streamStatusAuthStub{}, DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, Auth: streamStatusAuthStub{}, DS: ds}
 	content := []any{map[string]any{"type": "input_text", "text": "hi"}}
 	for i := 0; i < 51; i++ {
 		content = append(content, map[string]any{
@@ -271,7 +297,7 @@ func TestChatCompletionsInlineUploadLimitReturnsBadRequest(t *testing.T) {
 
 func TestResponsesInlineUploadFailureReturnsInternalServerError(t *testing.T) {
 	ds := &inlineUploadDSStub{uploadErr: errors.New("boom")}
-	h := &openAITestSurface{Store: mockOpenAIConfig{}, Auth: streamStatusAuthStub{}, DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, Auth: streamStatusAuthStub{}, DS: ds}
 	r := chi.NewRouter()
 	registerOpenAITestRoutes(r, h)
 	reqBody := `{"model":"deepseek-v4-flash","input":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,QUJDRA=="}}]}],"stream":false}`
@@ -294,7 +320,7 @@ func TestVercelPrepareUploadsInlineFilesBeforeLeasePayload(t *testing.T) {
 	t.Setenv("VERCEL", "1")
 	t.Setenv("DS2API_VERCEL_INTERNAL_SECRET", "stream-secret")
 	ds := &inlineUploadDSStub{}
-	h := &openAITestSurface{Store: mockOpenAIConfig{}, Auth: streamStatusAuthStub{}, DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, Auth: streamStatusAuthStub{}, DS: ds}
 	r := chi.NewRouter()
 	registerOpenAITestRoutes(r, h)
 	reqBody := `{"model":"deepseek-v4-flash","messages":[{"role":"user","content":[{"type":"input_text","text":"hi"},{"type":"image_url","image_url":{"url":"data:image/png;base64,QUJDRA=="}}]}],"stream":true}`

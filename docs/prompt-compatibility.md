@@ -5,6 +5,10 @@
 > 本文档是 DS2API“把 OpenAI / Claude / Gemini 风格 API 请求兼容成 DeepSeek 网页对话纯文本上下文”的专项说明。
 > 这是项目最重要的兼容产物之一。凡是修改消息标准化、tool prompt 注入、tool history 保留、文件引用、current input file、下游 completion payload 组装等行为，都必须同步更新本文档。
 
+> Update 2026-05-13:
+> DS2API now defaults to direct-conversation mode. Upstream file uploads are disabled unless `runtime.disable_upstream_file_uploads` is explicitly set to `false`.
+> In direct-conversation mode, `current_input_file` no longer uploads `DS2API_HISTORY.txt` / `DS2API_TOOLS.txt`, inline base64/data-URL file inputs are rejected, and `/v1/files` returns a direct-conversation mode error instead of uploading upstream.
+
 ## 1. 核心结论
 
 DS2API 当前的核心思路，不是把客户端传来的 `messages`、`tools`、`attachments` 原样转发给下游。

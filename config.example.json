@@ -47,7 +47,7 @@
     "store_ttl_seconds": 900
   },
   "current_input_file": {
-    "enabled": true,
+    "enabled": false,
     "min_chars": 0
   },
   "thinking_injection": {
@@ -64,7 +64,8 @@
     "account_max_inflight": 2,
     "account_max_queue": 0,
     "global_max_inflight": 0,
-    "token_refresh_interval_hours": 6
+    "token_refresh_interval_hours": 6,
+    "disable_upstream_file_uploads": true
   },
   "auto_delete": {
     "mode": "none"

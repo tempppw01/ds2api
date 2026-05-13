@@ -120,7 +120,7 @@ func newMultipartUploadRequest(t *testing.T, purpose string, filename string, da
 
 func TestFilesRouteUploadSuccess(t *testing.T) {
 	ds := &filesRouteDSStub{}
-	h := &openAITestSurface{Store: mockOpenAIConfig{}, Auth: streamStatusAuthStub{}, DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, Auth: streamStatusAuthStub{}, DS: ds}
 	r := chi.NewRouter()
 	registerOpenAITestRoutes(r, h)
 
@@ -160,7 +160,7 @@ func TestFilesRouteUploadSuccess(t *testing.T) {
 
 func TestFilesRouteUploadIncludesAccountIDForManagedAccount(t *testing.T) {
 	ds := &filesRouteDSStub{}
-	h := &openAITestSurface{Store: mockOpenAIConfig{}, Auth: managedFilesAuthStub{}, DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, Auth: managedFilesAuthStub{}, DS: ds}
 	r := chi.NewRouter()
 	registerOpenAITestRoutes(r, h)
 
@@ -188,7 +188,7 @@ func TestFilesRouteRetrieveSuccess(t *testing.T) {
 		Purpose:  "assistants",
 		Status:   "processed",
 	}}
-	h := &openAITestSurface{Store: mockOpenAIConfig{}, Auth: managedFilesAuthStub{}, DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, Auth: managedFilesAuthStub{}, DS: ds}
 	r := chi.NewRouter()
 	registerOpenAITestRoutes(r, h)
 
@@ -214,7 +214,7 @@ func TestFilesRouteRetrieveSuccess(t *testing.T) {
 
 func TestFilesRouteRetrieveNotFound(t *testing.T) {
 	ds := &filesRouteDSStub{err: dsclient.ErrUploadFileNotFound}
-	h := &openAITestSurface{Store: mockOpenAIConfig{}, Auth: streamStatusAuthStub{}, DS: ds}
+	h := &openAITestSurface{Store: mockOpenAIConfig{upstreamFileUploads: true}, Auth: streamStatusAuthStub{}, DS: ds}
 	r := chi.NewRouter()
 	registerOpenAITestRoutes(r, h)
 
@@ -265,5 +265,22 @@ func TestFilesRouteRequiresFileField(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFilesRouteDisabledInDirectConversationMode(t *testing.T) {
+	h := &openAITestSurface{Store: mockOpenAIConfig{}, Auth: streamStatusAuthStub{}, DS: &filesRouteDSStub{}}
+	r := chi.NewRouter()
+	registerOpenAITestRoutes(r, h)
+
+	req := newMultipartUploadRequest(t, "assistants", "notes.txt", []byte("hello world"), "deepseek-v4-vision")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !bytes.Contains([]byte(body), []byte("direct-conversation mode")) {
+		t.Fatalf("expected direct-conversation mode error, got body=%s", body)
 	}
 }

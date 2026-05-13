@@ -141,8 +141,32 @@ func (s *Store) RuntimeTokenRefreshIntervalHours() int {
 	return 6
 }
 
+func (s *Store) UpstreamFileUploadsEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cfg.Runtime.DisableUpstreamFileUploads == nil {
+		return false
+	}
+	return !*s.cfg.Runtime.DisableUpstreamFileUploads
+}
+
 func (s *Store) AutoDeleteSessions() bool {
 	return s.AutoDeleteMode() != "none"
+}
+
+type upstreamFileUploadReader interface {
+	UpstreamFileUploadsEnabled() bool
+}
+
+func UpstreamFileUploadsEnabledFrom(reader any) bool {
+	if reader == nil {
+		return false
+	}
+	r, ok := reader.(upstreamFileUploadReader)
+	if !ok {
+		return false
+	}
+	return r.UpstreamFileUploadsEnabled()
 }
 
 func (s *Store) CurrentInputFileEnabled() bool {

@@ -35,7 +35,7 @@ type Service struct {
 }
 
 func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
-	if stdReq.CurrentInputFileApplied || s.DS == nil || s.Store == nil || a == nil || !s.Store.CurrentInputFileEnabled() {
+	if stdReq.CurrentInputFileApplied || s.DS == nil || s.Store == nil || a == nil || !config.UpstreamFileUploadsEnabledFrom(s.Store) || !s.Store.CurrentInputFileEnabled() {
 		return stdReq, nil
 	}
 	threshold := s.Store.CurrentInputFileMinChars()
@@ -115,7 +115,7 @@ func (s Service) ApplyCurrentInputFile(ctx context.Context, a *auth.RequestAuth,
 }
 
 func (s Service) ReuploadAppliedCurrentInputFile(ctx context.Context, a *auth.RequestAuth, stdReq promptcompat.StandardRequest) (promptcompat.StandardRequest, error) {
-	if !stdReq.CurrentInputFileApplied || s.DS == nil || a == nil {
+	if !stdReq.CurrentInputFileApplied || s.DS == nil || a == nil || !config.UpstreamFileUploadsEnabledFrom(s.Store) {
 		return stdReq, nil
 	}
 	fileText := strings.TrimSpace(stdReq.HistoryText)

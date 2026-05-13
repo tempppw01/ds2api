@@ -44,3 +44,22 @@ func TestStoreThinkingInjectionAccessors(t *testing.T) {
 		t.Fatalf("thinking injection prompt=%q want custom thinking prompt", got)
 	}
 }
+
+func TestStoreUpstreamFileUploadAccessors(t *testing.T) {
+	store := &Store{cfg: Config{}}
+	if store.UpstreamFileUploadsEnabled() {
+		t.Fatal("expected upstream file uploads disabled by default")
+	}
+
+	disabled := true
+	store.cfg.Runtime.DisableUpstreamFileUploads = &disabled
+	if store.UpstreamFileUploadsEnabled() {
+		t.Fatal("expected upstream file uploads to stay disabled")
+	}
+
+	disabled = false
+	store.cfg.Runtime.DisableUpstreamFileUploads = &disabled
+	if !store.UpstreamFileUploadsEnabled() {
+		t.Fatal("expected upstream file uploads enabled when explicitly allowed")
+	}
+}

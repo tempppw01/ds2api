@@ -31,6 +31,10 @@ type fileFetcher interface {
 }
 
 func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
+	if !config.UpstreamFileUploadsEnabledFrom(h.Store) {
+		shared.WriteOpenAIError(w, http.StatusBadRequest, "Upstream file uploads are disabled in direct-conversation mode.")
+		return
+	}
 	a, err := h.Auth.Determine(r)
 	if err != nil {
 		status := http.StatusUnauthorized
