@@ -123,17 +123,14 @@ DS2API 当前的核心思路，不是把客户端传来的 `messages`、`tools`�
 
 ## 5. prompt 是怎么拼出来的
 
-OpenAI Chat / Responses 在标准化后、current input file 之前，会默认执行 `thinking_injection` 增强。它参考 DeepSeek V4 “把控制指令放在 user 消息末尾更稳定”的用法，在最新 user message 后追加思考增强提示词。当前内置默认提示词以 `Reasoning Effort: Absolute maximum with no shortcuts permitted.` 开头，并继续要求模型充分分解问题、覆盖潜在路径与边界条件、把完整推演过程显式写出。该开关默认启用，可通过 `thinking_injection.enabled=false` 关闭；也可以通过 `thinking_injection.prompt` 自定义提示词，留空时使用内置默认提示词。
+OpenAI Chat / Responses 在标准化后、current input file 之前，只有在显式启用 `thinking_injection` 时才会执行这段增强。它会在最新 user message 后追加一段思考增强提示词；当前内置默认提示词以 `Reasoning Effort: Absolute maximum with no shortcuts permitted.` 开头。该开关默认关闭，可通过 `thinking_injection.enabled=true` 启用；也可以通过 `thinking_injection.prompt` 自定义提示词，留空时使用内置默认提示词。
 
 这段增强属于 prompt 可见上下文：
 
 - 普通请求会直接出现在最终 `prompt` 的最新 user block 末尾。
 - 如果触发 current input file，它会进入完整上下文文件中。
 
-另外，`MessagesPrepareWithThinking` 还会在最终 prompt 的最前面预置一段固定的 system 级“输出完整性约束（Output integrity guard）”：
-
-- 如果上游上下文、工具输出或解析后的文本出现乱码、损坏、部分解析、重复或其他畸形片段，不要模仿、不要回显，只输出给用户的正确内容。
-- 这段约束位于普通 system / tool prompt 之前，因此是当前最终 prompt 里的最高优先级前置指令。
+另外，`MessagesPrepareWithThinking` 当前不会再自动在最终 prompt 最前面追加额外的固定 system 提示词；最终 prompt 会按调用方提供的 system / user / assistant / tool 内容直接组装。
 
 ### 5.1 角色标记
 
