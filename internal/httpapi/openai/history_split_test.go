@@ -211,8 +211,8 @@ func TestApplyCurrentInputFileDisabledPassThrough(t *testing.T) {
 	if out.CurrentInputFileApplied || out.HistoryText != "" {
 		t.Fatalf("expected direct pass-through, got current_input=%v history=%q", out.CurrentInputFileApplied, out.HistoryText)
 	}
-	if !strings.Contains(out.FinalPrompt, "first user turn") || !strings.Contains(out.FinalPrompt, "latest user turn") {
-		t.Fatalf("expected original prompt context to stay inline, got %s", out.FinalPrompt)
+	if out.FinalPrompt != "latest user turn" {
+		t.Fatalf("expected latest user text only, got %s", out.FinalPrompt)
 	}
 }
 

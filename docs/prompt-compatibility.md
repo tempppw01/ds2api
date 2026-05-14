@@ -8,6 +8,8 @@
 > Update 2026-05-13:
 > DS2API now defaults to direct-conversation mode. Upstream file uploads are disabled unless `runtime.disable_upstream_file_uploads` is explicitly set to `false`.
 > In direct-conversation mode, `current_input_file` no longer uploads `DS2API_HISTORY.txt` / `DS2API_TOOLS.txt`, inline base64/data-URL file inputs are rejected, and `/v1/files` returns a direct-conversation mode error instead of uploading upstream.
+> Update 2026-05-14:
+> For normal direct requests, the live upstream `prompt` now defaults to only the latest user text after message normalization. DS2API no longer injects tool descriptions, role wrappers, prior turn history, or extra default prompt text into the ordinary live prompt path. `thinking_injection` and `current_input_file` are both default-disabled; `current_input_file` still exists as an explicit opt-in file-context path.
 
 ## 1. 核心结论
 

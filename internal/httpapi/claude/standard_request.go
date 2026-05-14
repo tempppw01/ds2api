@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"ds2api/internal/config"
-	"ds2api/internal/prompt"
 	"ds2api/internal/promptcompat"
 	"ds2api/internal/util"
 )
@@ -40,7 +39,7 @@ func normalizeClaudeRequest(store ConfigReader, req map[string]any) (claudeNorma
 	if config.IsNoThinkingModel(dsModel) {
 		thinkingEnabled = false
 	}
-	finalPrompt := prompt.MessagesPrepareWithThinking(toMessageMaps(dsPayload["messages"]), thinkingEnabled)
+	finalPrompt, _ := promptcompat.BuildOpenAIPromptForAdapter(normalizedMessages, toolsRequested, "", thinkingEnabled)
 	toolNames := extractClaudeToolNames(toolsRequested)
 	if len(toolNames) == 0 && len(toolsRequested) > 0 {
 		toolNames = []string{"__any_tool__"}

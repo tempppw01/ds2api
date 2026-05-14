@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"strings"
 	"testing"
 
 	"ds2api/internal/promptcompat"
@@ -107,7 +106,7 @@ func TestNormalizeOpenAIResponsesRequestAlwaysAcceptsWideInput(t *testing.T) {
 	if out.Surface != "openai_responses" {
 		t.Fatalf("unexpected surface: %q", out.Surface)
 	}
-	if !strings.Contains(out.FinalPrompt, "<|User|>hi") {
+	if out.FinalPrompt != "hi" {
 		t.Fatalf("unexpected final prompt: %q", out.FinalPrompt)
 	}
 }

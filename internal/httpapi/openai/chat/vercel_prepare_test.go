@@ -199,11 +199,8 @@ func TestHandleVercelStreamPrepareUsesHalfwidthDSMLToolPrompt(t *testing.T) {
 	payload, _ := body["payload"].(map[string]any)
 	payloadPrompt, _ := payload["prompt"].(string)
 	for label, promptText := range map[string]string{"final_prompt": finalPrompt, "payload.prompt": payloadPrompt} {
-		if !strings.Contains(promptText, "<|DSML|tool_calls>") || !strings.Contains(promptText, "Tag punctuation alphabet: ASCII < > / = \" plus the halfwidth pipe |.") {
-			t.Fatalf("expected %s to contain halfwidth DSML tool instructions, got %q", label, promptText)
-		}
-		if strings.Contains(promptText, "\uff5c") || strings.Contains(promptText, "full"+"width vertical bar") {
-			t.Fatalf("expected %s not to contain legacy pipe guidance, got %q", label, promptText)
+		if promptText != "search docs" {
+			t.Fatalf("expected %s to pass through only the latest user text, got %q", label, promptText)
 		}
 	}
 	toolNames, _ := body["tool_names"].([]any)

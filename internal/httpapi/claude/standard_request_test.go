@@ -40,7 +40,7 @@ func TestNormalizeClaudeRequest(t *testing.T) {
 	}
 }
 
-func TestNormalizeClaudeRequestSupportsCamelCaseInputSchemaPromptInjection(t *testing.T) {
+func TestNormalizeClaudeRequestSupportsCamelCaseInputSchemaWithoutPromptInjection(t *testing.T) {
 	t.Setenv("DS2API_CONFIG_JSON", `{}`)
 	store := config.LoadStore()
 	req := map[string]any{
@@ -60,8 +60,8 @@ func TestNormalizeClaudeRequestSupportsCamelCaseInputSchemaPromptInjection(t *te
 	if err != nil {
 		t.Fatalf("normalize failed: %v", err)
 	}
-	if !containsStr(norm.Standard.FinalPrompt, `"type":"array"`) {
-		t.Fatalf("expected inputSchema to be injected into prompt, got=%q", norm.Standard.FinalPrompt)
+	if norm.Standard.FinalPrompt != "hello" {
+		t.Fatalf("expected latest user text only, got=%q", norm.Standard.FinalPrompt)
 	}
 }
 
@@ -84,11 +84,8 @@ func TestNormalizeClaudeRequestInjectsToolsIntoExistingSystemMessage(t *testing.
 		t.Fatalf("normalize failed: %v", err)
 	}
 
-	if !containsStr(norm.Standard.FinalPrompt, "You have access to these tools") {
-		t.Fatalf("expected tool prompt injected into final prompt, got=%q", norm.Standard.FinalPrompt)
-	}
-	if !containsStr(norm.Standard.FinalPrompt, "baseline rule") {
-		t.Fatalf("expected existing system message preserved, got=%q", norm.Standard.FinalPrompt)
+	if norm.Standard.FinalPrompt != "hello" {
+		t.Fatalf("expected latest user text only, got=%q", norm.Standard.FinalPrompt)
 	}
 }
 
@@ -111,10 +108,7 @@ func TestNormalizeClaudeRequestInjectsToolsIntoTopLevelSystem(t *testing.T) {
 		t.Fatalf("normalize failed: %v", err)
 	}
 
-	if !containsStr(norm.Standard.FinalPrompt, "top-level system") {
-		t.Fatalf("expected top-level system preserved, got=%q", norm.Standard.FinalPrompt)
-	}
-	if !containsStr(norm.Standard.FinalPrompt, "You have access to these tools") {
-		t.Fatalf("expected tool prompt injected, got=%q", norm.Standard.FinalPrompt)
+	if norm.Standard.FinalPrompt != "hello" {
+		t.Fatalf("expected latest user text only, got=%q", norm.Standard.FinalPrompt)
 	}
 }
